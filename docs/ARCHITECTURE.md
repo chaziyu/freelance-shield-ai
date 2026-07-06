@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This document describes the target MVP architecture. Milestone 1 currently implements only the React shell, FastAPI health route, local-development CORS, and combined container runtime.
+This document describes the target MVP architecture. The current implementation includes the React command-center shell, FastAPI health and workflow routes, SQLite-backed project/agreement/evidence/draft/audit persistence, API-backed Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit UI pages, a real internal MCP server, and Google ADK agent definitions. Workflow writes are gated behind `FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1` until REST actively executes the ADK coordinator in the production path. `DESIGN.md` is the source of truth for frontend shell, visual workflow, and Follow-Up page hierarchy.
 
 ## System context
 
@@ -26,6 +26,8 @@ flowchart TD
 
 The frontend and public REST API are the only user-facing runtime surfaces. The MCP server runs over STDIO as an internal child process and must not listen on a network port. No component sends messages or controls an external platform.
 
+The frontend preserves the `DESIGN.md` command-center shell: dark workflow sidebar, top project header with draft-only warning, project state rail, light task workspace, right safety/audit context panel, and mobile bottom navigation. It must render project state, trace, policy, draft, timeline, and audit data from backend responses rather than fabricated frontend rows.
+
 ## Layer responsibilities
 
 | Layer | Responsibility | Must not do |
@@ -47,6 +49,7 @@ The frontend and public REST API are the only user-facing runtime surfaces. The 
 3. **Agent/tool boundary:** each agent receives a separate `McpToolset` filtered to its explicit allowlist.
 4. **MCP/STDIO boundary:** MCP messages use stdout; operational logs use stderr. Tool results are JSON-compatible dictionaries without environment, database, prompt, or stack-trace details.
 5. **Persistence boundary:** only repositories access SQLite. Agents reach persistence through approved MCP tools and services.
+6. **Time display boundary:** persisted timestamps remain UTC. The UI may render them with a user-selected GMT offset, but display preference changes never mutate stored timestamps or audit ordering.
 
 ## Agent permission matrix
 
@@ -88,9 +91,11 @@ sequenceDiagram
 
 For follow-up generation, deterministic policy runs before wording is drafted. A dispute always selects `DISPUTE_CLARIFICATION`; later model output cannot widen that permission. `SafetyAuditAgent` then checks the proposed text. A draft is stored and shown only after approval. A blocked attempt still creates an audit event.
 
+Google ADK is part of the production workflow path. If ADK or model configuration is missing, workflow endpoints fail safely with configuration-oriented errors and no generated draft. Tests may isolate the model boundary with controlled fakes, but production code must not replace ADK agents with a service-only shortcut.
+
 ## Domain and persistence model
 
-All primary keys are UUIDs and timestamps are UTC.
+All primary keys are UUIDs and persisted timestamps are UTC.
 
 - `Project`: source facts, amount/currency, deadlines, state, and dispute flag.
 - `AgreementVersion`: stable agreement code, version, terms, acceptance status, and acceptance timestamp. Existing versions are not overwritten.
@@ -121,8 +126,8 @@ Any active state → DISPUTED → RESOLUTION_PENDING
 
 The planned single Docker image uses a Node build stage for the React assets and a Python runtime stage for FastAPI and static files. SQLite is stored at `/app/data/freelance_shield.db`, backed locally by a Compose `./data` volume. The application launches the internal MCP STDIO process as needed; Compose does not publish an MCP port.
 
-### Milestone 1 runtime path
+### Current local runtime path
 
-Vite serves the React dashboard at `http://localhost:5173` during local frontend development and proxies `/api` to FastAPI at `http://localhost:8000`. In Docker, the Node build stage compiles the frontend, the Python stage copies those static assets beside FastAPI, and one Uvicorn process serves both the SPA and `GET /api/health` on port `8000`. Compose optionally reads `.env` and mounts `./data` at `/app/data`; neither the data volume nor any AI key is used yet.
+Vite serves the React dashboard at `http://localhost:5173` during local frontend development and proxies `/api` to FastAPI at `http://localhost:8000`. In Docker, the Node build stage compiles the frontend, the Python stage copies those static assets beside FastAPI, and one Uvicorn process serves both the SPA and `/api` on port `8000`. Compose optionally reads `.env` and mounts `./data` at `/app/data` for SQLite. Local scaffold workflow writes require `FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1`; without that flag, generation and write routes fail safely with a configuration error.
 
 The exact production host, model, backup policy, and process supervisor remain unresolved.

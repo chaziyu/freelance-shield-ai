@@ -2,7 +2,7 @@
 
 ## Status
 
-This document specifies required controls for the planned MVP. Milestone 0 contains no runtime implementation and therefore makes no claim that these controls are already operational.
+This document specifies required controls for the MVP. The current implementation has local SQLite persistence, workflow routes, an explicit scaffold workflow gate, API-backed Intake/Agreement/Acceptance/Evidence/Follow-Up/Audit UI slices, a real internal MCP server, Google ADK agent definitions with narrow tool filters, and backend safety regression tests. The full controls become production-complete only when REST actively executes the ADK coordinator and browser E2E coverage passes.
 
 ## Assets and threats
 

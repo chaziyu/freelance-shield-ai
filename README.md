@@ -2,7 +2,7 @@
 
 FreelanceShield AI is a planned evidence-first workflow for freelancers who agree work through informal channels. It turns a client chat into structured facts, a versioned agreement, recorded acceptance, an evidence timeline, a safe communication draft, and an append-only audit trail. Generated communications are always drafts for manual review; the product does not send messages, provide legal advice, collect payment, or automate a browser.
 
-> Repository status: Milestone 1 scaffold. The responsive React shell, FastAPI health endpoint, and single-container build are implemented. Agents, MCP, persistence, authentication, and business workflows are not implemented.
+> Repository status: command-center shell plus the local scaffold workflow path. FastAPI now exposes workflow routes, SQLite-backed project/agreement/evidence/draft/audit persistence, and API-backed Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit UI pages. A real `freelance-evidence-mcp` server and Google ADK agent definitions now exist with narrow tool filters, but REST still uses the gated local scaffold path until the ADK coordinator execution is wired.
 
 ## Problem
 
@@ -23,6 +23,8 @@ Informal client chat
 → evidence and audit timeline
 ```
 
+The product UI follows the command-center direction in [DESIGN.md](DESIGN.md): a dark workflow rail, light task workspace, project state rail, persistent draft-only warning, right-side safety/audit context, and mobile bottom navigation. Wired work preserves this shell and replaces scaffold data page by page with backend API data. Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit are wired to backend data in the local scaffold path.
+
 ## Planned architecture
 
 ```mermaid
@@ -42,7 +44,7 @@ flowchart TD
     Repositories --> DB["SQLite + append-only audit events"]
 ```
 
-The MCP server is an internal child process, not a public network service. Agents use separate, narrowly filtered toolsets and never access SQLite directly. See [Architecture](docs/ARCHITECTURE.md), [API contract](docs/API_CONTRACT.md), and [Security](docs/SECURITY.md).
+The MCP server is an internal child process, not a public network service. Agent definitions use separate, narrowly filtered toolsets and never expose SQLite directly. Google ADK must be actively called in the production workflow path before the demo is complete. Tests may isolate model-dependent behavior with controlled fixtures, but the demo implementation must not silently replace ADK agents with a non-ADK shortcut. See [Architecture](docs/ARCHITECTURE.md), [API contract](docs/API_CONTRACT.md), and [Security](docs/SECURITY.md).
 
 ## Planned agents
 
@@ -101,10 +103,10 @@ source .venv/bin/activate
 python -m pip install -r requirements.lock
 python -m pytest
 ruff check .
-uvicorn app.main:app --reload --port 8000
+FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1 uvicorn app.main:app --reload --port 8000
 ```
 
-On Windows PowerShell, activate with `.\.venv\Scripts\Activate.ps1` instead of `source .venv/bin/activate`.
+On Windows PowerShell, activate with `.\.venv\Scripts\Activate.ps1` instead of `source .venv/bin/activate`, then use `$env:FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW="1"` before running Uvicorn when you want the local scaffold workflow routes.
 
 ### Frontend locally
 
@@ -127,7 +129,7 @@ An API key is not required for Milestone 1. Compose reads `.env` when present an
 docker compose up --build
 ```
 
-Open `http://localhost:8000` for the frontend or `http://localhost:8000/api/health` for the health response. The Compose service mounts `./data` at `/app/data`; it remains unused until persistence is implemented.
+Open `http://localhost:8000` for the frontend or `http://localhost:8000/api/health` for the health response. The Compose service mounts `./data` at `/app/data` for SQLite persistence.
 
 ## Demo
 
@@ -145,11 +147,12 @@ The expected result is Agreement `FS-001` Version `1`, simulated matching accept
 
 ## Screenshots
 
-Screenshots will be added only after the UI exists in Milestone 6. The reserved location is `docs/screenshots/`.
+Screenshots will be added after the wired UI is verified. The reserved location is `docs/screenshots/`.
 
 ## Known limitations
 
-- Scaffold only; intake analysis and all project workflows are intentionally inactive.
+- Local scaffold workflow writes are available only with `FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1`; production workflow still needs REST-to-ADK coordinator execution.
+- The current command-center shell uses backend data for the six-page local scaffold workflow, but production workflow is not complete until the ADK coordinator actively drives the MCP tools.
 - Single-user, synthetic-data MVP.
 - No real messaging, payment, legal research, browser automation, file upload, signature, or external platform integration.
 - No claim that stored records or hashes establish legal ownership or admissibility.

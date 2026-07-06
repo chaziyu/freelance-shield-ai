@@ -9,6 +9,8 @@ description = "FreelanceShield AI FastAPI scaffold"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
+  "google-adk>=2.3,<3",
+  "mcp>=1.28,<2",
   "pydantic>=2.10,<3",
   "uvicorn>=0.34,<1",
 ]

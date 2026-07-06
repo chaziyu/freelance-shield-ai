@@ -1,53 +1,40 @@
-import { Link, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
-import { DashboardPage } from "./pages/DashboardPage";
-import { NewProjectPage } from "./pages/NewProjectPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
-
-const navItems = [
-  ["Dashboard", "/"],
-  ["New project", "/new-project"],
-] as const;
+import { WorkflowPage } from "./pages/WorkflowPage";
 
 export function App() {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-white/10 bg-slate-950/90">
-        <nav
-          aria-label="Primary navigation"
-          className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6"
-        >
-          <Link className="font-semibold tracking-tight" to="/">
-            FreelanceShield AI
-          </Link>
-          <div className="flex gap-4 text-sm text-slate-300">
-            {navItems.map(([label, path]) => (
-              <Link className="hover:text-white" key={path} to={path}>
-                {label}
-              </Link>
-            ))}
-          </div>
-        </nav>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-        <Routes>
-          <Route element={<DashboardPage />} path="/" />
-          <Route element={<NewProjectPage />} path="/new-project" />
-          <Route
-            element={<PlaceholderPage title="Agreement" />}
-            path="/agreement/:projectId"
-          />
-          <Route
-            element={<PlaceholderPage title="Evidence timeline" />}
-            path="/timeline/:projectId"
-          />
-          <Route
-            element={<PlaceholderPage title="Follow-up" />}
-            path="/follow-up/:projectId"
-          />
-        </Routes>
-      </main>
-    </div>
+    <Routes>
+      <Route element={<Navigate replace to="/intake" />} path="/" />
+      <Route element={<WorkflowPage activeStep="intake" />} path="/intake" />
+      <Route
+        element={<WorkflowPage activeStep="intake" />}
+        path="/new-project"
+      />
+      <Route
+        element={<WorkflowPage activeStep="agreement" />}
+        path="/agreement/:projectId?"
+      />
+      <Route
+        element={<WorkflowPage activeStep="acceptance" />}
+        path="/acceptance/:projectId?"
+      />
+      <Route
+        element={<WorkflowPage activeStep="evidence" />}
+        path="/timeline/:projectId?"
+      />
+      <Route
+        element={<WorkflowPage activeStep="evidence" />}
+        path="/evidence/:projectId?"
+      />
+      <Route
+        element={<WorkflowPage activeStep="follow-up" />}
+        path="/follow-up/:projectId?"
+      />
+      <Route
+        element={<WorkflowPage activeStep="audit" />}
+        path="/audit/:projectId?"
+      />
+    </Routes>
   );
 }

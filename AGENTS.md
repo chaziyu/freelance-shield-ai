@@ -9,6 +9,7 @@ Humans should start with `README.md`. Before changing code, agents must read:
 3. `PRD.md`
 4. `docs/ARCHITECTURE.md`
 5. `docs/API_CONTRACT.md`
+6. `DESIGN.md` when changing frontend, UI copy, user journey, milestone UI scope, or visual workflow structure.
 
 If an implementation request conflicts with the safety invariants below, the invariants win unless the repository owner explicitly overrides them.
 
@@ -160,6 +161,15 @@ SQLite Database + Audit Log
 | Database         | Projects, agreements, evidence, drafts, audit events                                         |
 
 Do not place business rules inside React components or LLM prompts when deterministic backend code can enforce them.
+
+### Google ADK requirement
+
+The MVP and capstone demo must include Google ADK in the real workflow path:
+
+* `CoordinatorAgent`, `IntakeAgent`, `AgreementAgent`, `FollowUpAgent`, and `SafetyAuditAgent` must be implemented as Google ADK agents.
+* API workflow code must call the ADK coordinator or an ADK-backed workflow service, not a purely frontend or service-only mock.
+* Tests may use controlled fakes or fixtures around the ADK/model boundary, but production demo code must not silently replace ADK agents with a non-ADK shortcut.
+* Missing Google ADK or model configuration must fail safely with a clear configuration error and no generated draft, not with unsafe fallback wording.
 
 ---
 
@@ -357,6 +367,36 @@ DISPUTE_CLARIFICATION
 * Render agent traces from backend-returned data; do not fake them in the frontend.
 * Make all visible draft outputs copyable.
 * Display the draft-only warning prominently.
+* Preserve the current command-center shell direction from `DESIGN.md`: sidebar workflow rail, top warning banner, project state rail, right safety/audit panel, and mobile bottom navigation.
+* Refactor the current shell into reusable components before wiring additional pages:
+
+```text
+WorkflowShell
+WorkflowSidebar
+ProjectHeader
+StateRail
+SafetyPanel
+AuditPreview
+StatusChip
+Panel
+PolicyDecisionPanel
+DraftReviewPanel
+```
+
+* Replace mock data page by page in this order:
+
+```text
+Intake API data
+→ Agreement API data
+→ Acceptance API data
+→ Evidence API data
+→ Follow-Up API data
+→ Audit API data
+```
+
+* Keep `DESIGN.md` as the UI/UX guardrail. The wired build should match the existing visual system unless real backend state exposes a concrete UX problem.
+* Store timestamps in UTC. The UI must let the user choose a display GMT offset using a clock-setting style control, such as a scrollable GMT selector. Do not change persisted UTC values when the display offset changes.
+* Show exact backend enum states only as compact chips. Pair them with human-readable labels in the workflow rail and state rail.
 
 ### Naming
 

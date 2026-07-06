@@ -2,13 +2,14 @@
 
 ## Status
 
-This is the planned MVP contract for `/api`. Milestone 1 implements only `GET /api/health`; all other endpoints remain specifications. Implementation may add fields only when documentation and aligned frontend/backend schemas are updated together; the safety behavior below is mandatory.
+This is the MVP contract for `/api`. The current implementation includes `GET /api/health`, workflow routes, SQLite-backed persistence, API-backed Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit UI slices, a real internal MCP server, and Google ADK agent definitions. Local scaffold workflow writes require `FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1`; the production path still must replace the REST scaffold shortcut with active Google ADK coordinator execution using the internal MCP server. Implementation may add fields only when documentation and aligned frontend/backend schemas are updated together; the safety behavior below is mandatory.
 
 ## Conventions
 
 - Content type: `application/json`.
 - IDs: UUID strings.
 - Timestamps: UTC ISO 8601 strings, for example `2026-07-06T04:00:00Z`.
+- Timestamp display: API responses remain UTC. The frontend may render timestamps using a user-selected GMT offset, for example `GMT+08:00`, without changing stored values or response ordering.
 - Dates: ISO 8601 calendar dates, for example `2026-07-10`.
 - Money: positive JSON number plus ISO 4217 currency code. The persistence implementation must use decimal-safe storage rather than binary floating-point arithmetic.
 - Unknown or unresolved values: `null`; agents must not invent them.
@@ -141,6 +142,30 @@ Hashes are content-integrity aids only; they do not prove authorship, ownership,
 ```
 
 Trace metadata is an allowlisted public summary. It must not contain raw prompts, secrets, environment values, hidden database details, or stack traces.
+
+### TimelineSummary
+
+```json
+{
+  "event_count": 6,
+  "latest_event_type": "DRAFT_CREATED",
+  "latest_event_at": "2026-07-06T05:10:00Z",
+  "hash_previews": ["36ae75", "64be01", "895e58"]
+}
+```
+
+Hash previews are short UI labels only. Full hashes remain available on evidence records where needed and are still integrity aids only.
+
+### AuditSummary
+
+```json
+{
+  "event_count": 9,
+  "latest_actor": "SafetyAuditAgent",
+  "latest_action": "draft_approved_to_show",
+  "latest_event_at": "2026-07-06T05:10:00Z"
+}
+```
 
 ### AuditEvent
 
@@ -398,11 +423,15 @@ Response `200`:
   "project": {},
   "current_agreement": {},
   "latest_policy": null,
-  "latest_draft": null
+  "latest_draft": null,
+  "timeline_summary": null,
+  "audit_summary": null,
+  "latest_trace": []
 }
 ```
 
 `current_agreement` is `null` before an agreement exists.
+The shell uses this response to render the project header, state rail, safety panel, and audit preview. The frontend must not fabricate these rows when the backend has not returned them.
 
 ### `GET /api/projects/{project_id}/timeline`
 

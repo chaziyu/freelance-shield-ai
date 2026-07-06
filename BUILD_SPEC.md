@@ -297,6 +297,8 @@ freelance-shield-ai/
 
 ├── AGENTS.md
 
+├── DESIGN.md
+
 ├── BUILD_SPEC.md
 
 ├── PRD.md
@@ -961,6 +963,70 @@ GET  /api/health
 
 Build a polished responsive dashboard.
 
+`DESIGN.md` is the UI/UX source of truth. The frontend must preserve the command-center shell direction:
+
+```text
+
+dark sidebar workflow rail
+
+top project header and draft-only warning banner
+
+project state rail with human labels and compact enum chips
+
+light main task workspace
+
+right safety, agent trace, and audit context panel
+
+mobile bottom workflow navigation
+
+```
+
+Refactor the shell into reusable components before wiring all pages:
+
+```text
+
+WorkflowShell
+
+WorkflowSidebar
+
+ProjectHeader
+
+StateRail
+
+SafetyPanel
+
+AuditPreview
+
+StatusChip
+
+Panel
+
+PolicyDecisionPanel
+
+DraftReviewPanel
+
+```
+
+Replace scaffold or mock data page by page in this order:
+
+```text
+
+Intake API data
+
+→ Agreement API data
+
+→ Acceptance API data
+
+→ Evidence API data
+
+→ Follow-Up API data
+
+→ Audit API data
+
+```
+
+Persist timestamps in UTC. The UI must include a user-selectable GMT display offset using a clock-setting style control, such as a scrollable GMT selector. Changing the display offset must not mutate stored timestamps.
+
 ### Page 1 — New Project
 
 ```text
@@ -969,7 +1035,7 @@ Build a polished responsive dashboard.
 
 - platform selector;
 
-- Analyse Deal button;
+- Analyse chat button;
 
 - extracted facts card;
 
@@ -1259,6 +1325,8 @@ README.md
 
 AGENTS.md
 
+DESIGN.md
+
 PRD.md
 
 BUILD_SPEC.md
@@ -1287,6 +1355,10 @@ Acceptance:
 
 - Project can be understood without reading source code.
 
+- `DESIGN.md` is the official UI/UX guardrail for frontend and user-journey work.
+
+- Milestones 0-7 describe the command-center workflow shell and page-by-page API wiring plan.
+
 ```
 
 Commit:
@@ -1304,6 +1376,8 @@ Deliver:
 ```text
 
 React Vite TypeScript app
+
+command-center app shell matching DESIGN.md
 
 FastAPI health endpoint
 
@@ -1323,7 +1397,9 @@ docker compose up --build
 
 GET /api/health returns 200
 
-frontend displays a basic dashboard
+frontend displays the command-center shell with sidebar, top warning banner, state rail, right safety/audit panel, and mobile bottom nav
+
+shell content is clearly scaffold state until API wiring exists
 
 ```
 
@@ -1353,6 +1429,10 @@ state transitions
 
 audit event service
 
+timeline summary service for the UI
+
+UTC timestamp storage with display-offset-safe response data
+
 ```
 
 Acceptance:
@@ -1364,6 +1444,8 @@ Acceptance:
 - Invalid state transitions return 409.
 
 - Every write creates an audit event.
+
+- Timeline and audit data can support the shell, safety panel, and audit preview.
 
 ```
 
@@ -1439,6 +1521,10 @@ Acceptance:
 
 ```text
 
+- Google ADK is present in the production workflow path.
+
+- Missing ADK or model configuration fails safely without generating a draft.
+
 - Intake does not invent missing terms.
 
 - Agreement includes FS code/version.
@@ -1471,6 +1557,10 @@ error handling
 
 trace response payload
 
+project detail payload for the shell
+
+timeline and audit summaries for right-panel previews
+
 ```
 
 Acceptance:
@@ -1482,6 +1572,8 @@ Acceptance:
 - Invalid input returns safe errors.
 
 - No raw exception or secret reaches client.
+
+- API responses expose enough state for the shell without frontend-fabricated trace, policy, or audit rows.
 
 ```
 
@@ -1499,15 +1591,23 @@ Deliver:
 
 ```text
 
-New Project page
+reusable command-center shell components
+
+New Project / Intake page
 
 Agreement page
+
+Acceptance page
 
 Evidence Timeline
 
 Follow-Up page
 
 Agent Trace panel
+
+Audit preview and audit page
+
+GMT display-offset selector
 
 responsive styling
 
@@ -1524,6 +1624,10 @@ Acceptance:
 - UI displays backend trace, policy result, and audit data.
 
 - Every draft shows the manual-review warning.
+
+- Follow-Up page places policy decision, evidence context, draft review, and blocked actions in the order defined by DESIGN.md.
+
+- Draft actions are copy-only and show "No message will be sent."
 
 ```
 
@@ -1548,6 +1652,8 @@ Vitest tests
 Playwright E2E test
 
 Ruff and ESLint configuration
+
+frontend safety/UX tests for forbidden labels and draft-only warnings
 
 ```
 

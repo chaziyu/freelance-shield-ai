@@ -4,7 +4,7 @@
 
 FreelanceShield AI is an evidence-first workflow for freelancers whose project terms arrive through informal channels such as WhatsApp, Instagram, Telegram, Facebook, or email. It structures only the facts a user provides, creates versioned agreement text, records simulated client acceptance and project evidence, and produces safety-reviewed communication drafts for manual sending.
 
-This document defines the MVP. Current repository status is Milestone 0: documentation only.
+This document defines the MVP. Current repository status is command-center shell plus the local scaffold workflow path: SQLite-backed project/agreement/evidence/draft/audit routes and API-backed Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit UI pages. `DESIGN.md` is the UI/UX guardrail for the wired workflow. Google ADK agent definitions and the MCP server exist, but REST-to-ADK coordinator execution remains required for the production demo path.
 
 ## 2. Problem
 
@@ -25,6 +25,7 @@ Core jobs:
 5. Determine whether an acceptance request, confirmation, friendly reminder, or dispute clarification is permitted.
 6. Copy a clearly labeled draft for manual review and sending.
 7. Inspect the project timeline, agent trace, and append-only audit trail.
+8. Choose a display GMT offset for timestamps without changing the stored UTC records.
 
 ## 4. Goals
 
@@ -35,6 +36,7 @@ Core jobs:
 - Keep agent permissions narrow and persistence behind approved MCP tools.
 - Make every significant workflow action auditable.
 - Present safety boundaries clearly in generated text and the UI.
+- Preserve the command-center user journey from `DESIGN.md`: workflow rail, project header, state rail, focused task workspace, safety/audit context, and mobile bottom navigation.
 
 ## 5. Non-goals
 
@@ -137,11 +139,15 @@ Evidence hashing is an integrity aid only. It does not prove who authored conten
 ## 10. User experience requirements
 
 - Responsive pages for intake, agreement, evidence, follow-up, and trace/audit.
+- Command-center shell matching `DESIGN.md`: dark sidebar workflow rail, top warning banner, state rail, right safety/audit panel, and mobile bottom navigation.
+- Reusable shell components before full page wiring: `WorkflowShell`, `WorkflowSidebar`, `ProjectHeader`, `StateRail`, `SafetyPanel`, `AuditPreview`, `StatusChip`, `Panel`, `PolicyDecisionPanel`, and `DraftReviewPanel`.
+- Page-by-page replacement of scaffold data in this order: Intake, Agreement, Acceptance, Evidence, Follow-Up, then Audit.
 - Clear loading, error, empty, blocked, unresolved, and accepted states.
 - Copy controls for agreement acceptance text and all visible drafts.
 - Prominent draft-only warning adjacent to every draft.
 - Human-readable policy reasons and safety blocks.
 - No control or wording that implies automatic sending.
+- User-selectable GMT display offset using a clock-setting style control, while persisted timestamps remain UTC.
 
 ## 11. Success and acceptance criteria
 
@@ -154,13 +160,15 @@ The MVP succeeds when a fresh clone can run with Docker Compose and a user can c
 - scope changes require reacceptance;
 - missing acceptance produces lower-certainty wording;
 - every agent tool call is audit logged.
+- Google ADK agents are present in the production workflow path.
+- UI workflow state, policy, trace, and audit data come from backend responses rather than frontend-fabricated rows.
 
 All backend, frontend, safety, integration, and browser tests defined in `AGENTS.md` and `BUILD_SPEC.md` must pass before the project is called complete.
 
 ## 12. Assumptions and open decisions
 
 - Initial deployment is single-user and local; authentication is intentionally out of scope.
-- The display timezone is not yet chosen; persisted timestamps will be UTC.
+- Persisted timestamps will be UTC. The user chooses the UI display GMT offset.
 - “High value” and “cross-border” policy thresholds are not yet defined. Until defined, they must not trigger numeric or jurisdiction-specific claims.
-- The exact Google ADK model and production hosting environment are not yet selected.
+- The exact Google ADK model and production hosting environment are not yet selected, but Google ADK must remain in the production workflow path.
 - Team names and attribution are pending.

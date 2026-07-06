@@ -2,7 +2,7 @@
 
 ## Status and purpose
 
-This is the acceptance script for the future MVP and uses synthetic data only. It is not executable in Milestone 0 because no application has been scaffolded.
+This is the acceptance script for the MVP and uses synthetic data only. The command-center shell and the Intake/Agreement/Acceptance/Evidence/Follow-Up/Audit local API slices exist. The MCP server and ADK agent definitions exist, but the production demo path is complete only after REST actively executes the ADK coordinator.
 
 Target duration: 5–7 minutes.
 
@@ -43,7 +43,7 @@ Use a presenter-supplied future calendar date for the deadline because “Friday
 
 1. Open **New Project**.
 2. Select `Instagram`.
-3. Paste the client chat and choose **Analyse Deal**.
+3. Paste the client chat and choose **Analyse chat**.
 4. Show the extracted facts and agent trace.
 
 Expected:
