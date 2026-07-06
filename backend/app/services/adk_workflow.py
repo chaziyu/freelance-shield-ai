@@ -447,6 +447,37 @@ def validate_scope_change_deterministic(
     return failed_codes
 
 
+def _parse_fallback_json(text: str) -> dict[str, Any] | None:
+    if not text:
+        return None
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        if not cleaned.endswith("```"):
+            return None
+        idx_start = cleaned.find("{")
+        idx_end = cleaned.rfind("}")
+        if idx_start == -1 or idx_end == -1 or idx_start >= idx_end:
+            return None
+        prefix = cleaned[:idx_start].strip()
+        suffix = cleaned[idx_end + 1:].strip()
+        if prefix not in ("```", "```json"):
+            return None
+        if suffix != "```":
+            return None
+        json_part = cleaned[idx_start:idx_end + 1]
+    else:
+        if not (cleaned.startswith("{") and cleaned.endswith("}")):
+            return None
+        json_part = cleaned
+    try:
+        parsed = json.loads(json_part)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    return None
+
+
 # --- Orchestration Service ---
 
 
@@ -1366,12 +1397,9 @@ class AdkWorkflowService:
             if event.content and event.content.parts:
                 for part in event.content.parts:
                     if part.text:
-                        try:
-                            parsed = json.loads(part.text)
-                            if isinstance(parsed, dict):
-                                return parsed
-                        except Exception:
-                            pass
+                        parsed = _parse_fallback_json(part.text)
+                        if parsed is not None:
+                            return parsed
 
         raise ValueError(f"Agent {agent.name} failed to return a structured output.")
 

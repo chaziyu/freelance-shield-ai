@@ -19,11 +19,13 @@ from app.schemas.agent_workflow import (
     ContractDraftWorkflowInput,
     DiscussionWorkflowInput,
     DueUpdateWorkflowInput,
+    ExtractedDiscussionFacts,
     ReviewedTerms,
     ScopeChangeWorkflowInput,
 )
 from app.services.adk_workflow import (
     AdkWorkflowService,
+    _parse_fallback_json,
     generate_safety_receipt,
     sign_reviewed_terms,
     verify_reviewed_terms,
@@ -981,3 +983,190 @@ async def test_coordinator_workflow_authority_regression() -> None:
         or "error" in res_fail.error["message"].lower()
         or "safely" in res_fail.error["message"].lower()
     )
+
+
+def test_discussion_agent_schema_association() -> None:
+    bundle = build_agent_bundle("mock-model")
+    assert bundle.discussion.output_schema is ExtractedDiscussionFacts
+
+
+def test_parse_fallback_json_direct() -> None:
+    # 1. Valid raw JSON object
+    assert _parse_fallback_json('{"a": 1}') == {"a": 1}
+    assert _parse_fallback_json('  {"a": 1}  ') == {"a": 1}
+
+    # 2. Valid single json fence
+    assert _parse_fallback_json('```json\n{"a": 1}\n```') == {"a": 1}
+    assert _parse_fallback_json('```\n{"a": 1}\n```') == {"a": 1}
+    assert _parse_fallback_json('```json {"a": 1} ```') == {"a": 1}
+
+    # 3. Prose plus JSON is rejected
+    assert _parse_fallback_json('Here is JSON: {"a": 1}') is None
+    assert _parse_fallback_json('{"a": 1} hope it helps') is None
+    assert _parse_fallback_json('Here is JSON: ```json {"a": 1} ```') is None
+
+    # 4. python fence is rejected
+    assert _parse_fallback_json('```python\n{"a": 1}\n```') is None
+
+    # 5. JSON array is rejected
+    assert _parse_fallback_json('[1, 2, 3]') is None
+    assert _parse_fallback_json('```json\n[1, 2, 3]\n```') is None
+
+
+@pytest.mark.anyio
+async def test_discussion_agent_fenced_json_workflow_success() -> None:
+    class FencedDiscussionMockLlm(MockLlm):
+        async def generate_content_async(self, request, stream: bool = False):
+            sys_inst = ""
+            if request.config and request.config.system_instruction:
+                if isinstance(request.config.system_instruction, str):
+                    sys_inst = request.config.system_instruction
+                elif hasattr(request.config.system_instruction, "parts"):
+                    sys_inst = "".join(
+                        p.text
+                        for p in request.config.system_instruction.parts
+                        if p.text
+                    )
+
+            if "DiscussionAgent" in sys_inst:
+                facts = {
+                    "title": "Synthetic Poster Project",
+                    "scope": {
+                        "value": "Design one poster.",
+                        "evidence_quote": "Need a poster",
+                        "confidence": 0.95,
+                    },
+                    "deliverables": {
+                        "value": ["One final poster file."],
+                        "evidence_quote": "Need a poster",
+                        "confidence": 0.9,
+                    },
+                    "fee_amount_minor": {
+                        "value": 80000,
+                        "evidence_quote": "RM800",
+                        "confidence": 0.99,
+                    },
+                    "currency": {
+                        "value": "MYR",
+                        "evidence_quote": "RM800",
+                        "confidence": 0.99,
+                    },
+                    "deadline": {
+                        "value": "2026-07-10",
+                        "evidence_quote": "Friday",
+                        "confidence": 0.8,
+                    },
+                    "revision_limit": {
+                        "value": 2,
+                        "evidence_quote": "Two revisions",
+                        "confidence": 0.95,
+                    },
+                    "payment_terms": {
+                        "value": "Payment due after invoice.",
+                        "evidence_quote": "invoice",
+                        "confidence": 0.5,
+                    },
+                    "missing_fields": [],
+                    "risk_flags": [],
+                }
+                json_str = json.dumps(facts)
+                yield _text_response(f"```json\n{json_str}\n```")
+                return
+
+            async for response in super().generate_content_async(request, stream):
+                yield response
+
+    service = AdkWorkflowService(FencedDiscussionMockLlm(model="mock"))
+    input_data = DiscussionWorkflowInput(
+        discussion_text=(
+            "Need a poster by Friday. RM800. Two revisions. "
+            "Payment due after invoice."
+        ),
+        source_platform="Instagram",
+    )
+    res = await service.analyze_discussion(input_data)
+    assert res.ok is True
+    assert res.data["project_id"] is not None
+
+    # Safety audit still runs (we check SafetyAuditAgent was invoked)
+    audit_called = any(event.agent_name == "SafetyAuditAgent" for event in res.trace)
+    assert audit_called is True
+
+
+@pytest.mark.anyio
+async def test_discussion_agent_prose_json_workflow_rejection() -> None:
+    class ProseDiscussionMockLlm(MockLlm):
+        async def generate_content_async(self, request, stream: bool = False):
+            sys_inst = ""
+            if request.config and request.config.system_instruction:
+                if isinstance(request.config.system_instruction, str):
+                    sys_inst = request.config.system_instruction
+                elif hasattr(request.config.system_instruction, "parts"):
+                    sys_inst = "".join(
+                        p.text
+                        for p in request.config.system_instruction.parts
+                        if p.text
+                    )
+
+            if "DiscussionAgent" in sys_inst:
+                facts = {
+                    "title": "Synthetic Poster Project",
+                    "scope": {
+                        "value": "Design one poster.",
+                        "evidence_quote": "Need a poster",
+                        "confidence": 0.95,
+                    },
+                    "deliverables": {
+                        "value": ["One final poster file."],
+                        "evidence_quote": "Need a poster",
+                        "confidence": 0.9,
+                    },
+                    "fee_amount_minor": {
+                        "value": 80000,
+                        "evidence_quote": "RM800",
+                        "confidence": 0.99,
+                    },
+                    "currency": {
+                        "value": "MYR",
+                        "evidence_quote": "RM800",
+                        "confidence": 0.99,
+                    },
+                    "deadline": {
+                        "value": "2026-07-10",
+                        "evidence_quote": "Friday",
+                        "confidence": 0.8,
+                    },
+                    "revision_limit": {
+                        "value": 2,
+                        "evidence_quote": "Two revisions",
+                        "confidence": 0.95,
+                    },
+                    "payment_terms": {
+                        "value": "Payment due after invoice.",
+                        "evidence_quote": "invoice",
+                        "confidence": 0.5,
+                    },
+                    "missing_fields": [],
+                    "risk_flags": [],
+                }
+                json_str = json.dumps(facts)
+                prose_and_json = (
+                    f"Here is the JSON output you wanted:\n{json_str}"
+                )
+                yield _text_response(prose_and_json)
+                return
+
+            async for response in super().generate_content_async(request, stream):
+                yield response
+
+    service = AdkWorkflowService(ProseDiscussionMockLlm(model="mock"))
+    input_data = DiscussionWorkflowInput(
+        discussion_text=(
+            "Need a poster by Friday. RM800. Two revisions. "
+            "Payment due after invoice."
+        ),
+        source_platform="Instagram",
+    )
+    res = await service.analyze_discussion(input_data)
+    assert res.ok is False
+    assert res.error["code"] == "WORKFLOW_ERROR"
