@@ -966,8 +966,7 @@ class DomainService:
                         "type": "milestone_completed",
                         "timestamp": m.completion_recorded_at,
                         "summary": (
-                            f"Milestone '{m.title}' marked completed "
-                            f"by {m.recorded_by}"
+                            f"Milestone '{m.title}' marked completed by {m.recorded_by}"
                         ),
                         "details": {
                             "milestone_id": str(m.id),

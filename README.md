@@ -2,7 +2,7 @@
 
 FreelanceShield AI turns an informal freelance discussion into a reviewed, mutually accepted contract, then uses the latest active contract to manage milestones and safe routine project communication through a built-in simulated client inbox.
 
-> **Repository status:** the product documentation has been corrected from the earlier evidence/payment-follow-up concept. The current application code still reflects that retired workflow and must be migrated through Milestones 2–9 before this README's target demo is considered implemented.
+> **Repository status:** Milestones 2–4 (persistence, MCP tool surface, corrected ADK agents with trusted persistence adapter) are implemented. Milestones 5–9 (scheduler, REST API, screens, tests, demo) are pending.
 
 ## Problem
 
@@ -33,15 +33,17 @@ The product is not a debt-recovery system. It does not send external messages, s
 ```mermaid
 flowchart TD
     UI["React + Vite command center"] --> API["FastAPI REST API"]
-    API --> C["Google ADK CoordinatorAgent"]
+    API --> WF["AdkWorkflowService"]
+    WF --> C["Google ADK CoordinatorAgent"]
     C --> D["DiscussionAgent"]
     C --> K["ContractAgent"]
     C --> M["CommunicationAgent"]
     C --> S["SafetyAuditAgent"]
-    D --> MCP["freelance-project-mcp over STDIO"]
-    K --> MCP
-    M --> MCP
-    S --> MCP
+    K -.->|"read-only"| MCP["freelance-project-mcp over STDIO"]
+    M -.->|"read-only"| MCP
+    S -.->|"read-only"| MCP
+    WF -->|"SafetyValidationReceipt"| Adapter["Trusted persistence adapter"]
+    Adapter --> MCP
     MCP --> Services["Contract, signature, milestone, queue, reply, scope-change, scheduler, audit services"]
     Services --> DB[("SQLite")]
     Services --> Inbox["Built-in simulated client inbox"]
@@ -51,13 +53,15 @@ The scheduler, not an AI agent, authorizes and performs delivery to the internal
 
 ## Agents
 
-| Agent | Responsibility |
-| --- | --- |
-| `CoordinatorAgent` | Route typed workflow tasks and return trace events; no persistence tools. |
-| `DiscussionAgent` | Extract only stated terms, ambiguity, and missing fields from untrusted discussion data. |
-| `ContractAgent` | Create immutable FS contract versions from reviewed facts and approved templates. |
-| `CommunicationAgent` | Draft contract-backed routine updates and classify client replies. |
-| `SafetyAuditAgent` | Check version, progress evidence, send mode, scope-change state, and wording. |
+| Agent | Responsibility | Runtime ADK tools |
+| --- | --- | --- |
+| `CoordinatorAgent` | Route typed workflow tasks and return trace events. | None (no tools, no sub_agents) |
+| `DiscussionAgent` | Extract only stated terms, ambiguity, and missing fields from untrusted discussion data. | None |
+| `ContractAgent` | Create immutable FS contract versions from reviewed facts and approved templates. | `get_contract_template` (read-only) |
+| `CommunicationAgent` | Draft contract-backed routine updates and classify client replies. | `get_latest_active_contract`, `get_due_communications` (read-only) |
+| `SafetyAuditAgent` | Check version, progress evidence, send mode, scope-change state, and wording. | `evaluate_automation_policy` (read-only) |
+
+No agent has mutating MCP tools. All mutations go through a trusted persistence adapter gated by a `SafetyValidationReceipt` (HMAC-SHA-256 signed, 5-min TTL).
 
 ## MCP tool surface
 
@@ -74,8 +78,12 @@ The server registers exactly 12 tools:
 | Scope change | `create_scope_change_request`, `evaluate_automation_policy` |
 | Traceability | `get_project_timeline` |
 
-### Backend-only actions (Not MCP Tools)
-These trusted human actions must be absent from MCP and ADK tool groups, handled solely by the backend:
+### Agent access model
+
+Agents receive only **read-only** MCP tools at runtime (`get_contract_template`, `get_latest_active_contract`, `get_due_communications`, `evaluate_automation_policy`). All mutating MCP tools (`create_project_from_terms`, `save_discussion_facts`, `create_contract_version`, `create_signature_request`, `queue_routine_update`, `create_scope_change_request`, `create_milestones_from_contract`) are called exclusively by the trusted persistence adapter after verifying a `SafetyValidationReceipt`.
+
+### Backend-only actions (not MCP tools)
+These trusted human actions are handled solely by the backend and are absent from both MCP and ADK tool groups:
 - `record_signature_acceptance`
 - `record_milestone_progress`
 - `pause_project_automation`
@@ -170,22 +178,22 @@ The target result is Contract `FS-001` V1, two acceptances, active milestones, a
 
 ## Roadmap
 
-| Milestone | Outcome |
-| --- | --- |
-| 0 | Corrected documentation |
-| 1 | Existing frontend/backend/Docker shell retained where reusable |
-| 2 | Contract, signature, milestone, message, reply, scope-change, and audit persistence |
-| 3 | `freelance-project-mcp` typed tool surface |
-| 4 | Corrected ADK agents and permissions |
-| 5 | Scheduler, idempotency, and automation policy |
-| 6 | Corrected workflow REST API |
-| 7 | Six complete API-backed screens |
-| 8 | Security, unit, integration, and Playwright tests |
-| 9 | Demo, screenshots, seed/reset, and submission materials |
+| Milestone | Outcome | Status |
+| --- | --- | --- |
+| 0 | Corrected documentation | ✅ Done |
+| 1 | Existing frontend/backend/Docker shell retained where reusable | ✅ Done |
+| 2 | Contract, signature, milestone, message, reply, scope-change, and audit persistence | ✅ Done |
+| 3 | `freelance-project-mcp` typed tool surface | ✅ Done |
+| 4 | Corrected ADK agents, trusted persistence adapter, and SafetyValidationReceipt gate | ✅ Done |
+| 5 | Scheduler, idempotency, and automation policy | Pending |
+| 6 | Corrected workflow REST API | Pending |
+| 7 | Six complete API-backed screens | Pending |
+| 8 | Security, unit, integration, and Playwright tests | Pending |
+| 9 | Demo, screenshots, seed/reset, and submission materials | Pending |
 
 ## Known limitations
 
-- Current code implements the retired evidence/payment-follow-up workflow and is pending migration.
+- Milestones 2–4 are implemented (persistence, MCP tools, ADK agents with trusted persistence adapter). Milestones 5–9 remain pending.
 - The corrected external-channel production integrations are intentionally absent; delivery is demo-inbox only.
 - Real signatures, accounts, personal data, payment processing, legal advice, and public hosting hardening are out of scope.
 - Team attribution and the final model/hosting choice are pending.
@@ -211,4 +219,5 @@ The target result is Contract `FS-001` V1, two acceptances, active milestones, a
 - [API contract](docs/API_CONTRACT.md)
 - [Security model](docs/SECURITY.md)
 - [Demo script](docs/DEMO_SCRIPT.md)
+- [Agent contract](docs/AGENT_CONTRACT.md)
 - [Agent instructions](AGENTS.md)

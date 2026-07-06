@@ -2,7 +2,7 @@
 
 ## Status
 
-This document defines required controls for the corrected contract-driven communication MVP. The current application still contains the legacy evidence/payment-follow-up domain; security compliance must be reassessed as each corrected milestone is implemented.
+This document defines required controls for the contract-driven communication MVP. Milestones 1–4 are implemented. The agent runtime enforces read-only MCP access; all mutations pass through a trusted persistence adapter that verifies a `SafetyValidationReceipt` before calling any mutating MCP tool.
 
 ## Assets and threats
 
@@ -121,15 +121,48 @@ A `SCOPE_CHANGE` classification is advisory. Deterministic code:
 
 ### Least-privilege tools
 
-| Agent | Allowed tools |
-| --- | --- |
-| `CoordinatorAgent` | None |
-| `DiscussionAgent` | Project-from-terms, discussion facts |
-| `ContractAgent` | Contract template/version, signature request |
-| `CommunicationAgent` | Active contract/timeline reads, due communication, queue, scope-change request |
-| `SafetyAuditAgent` | Automation policy only |
+No ADK agent holds a mutating MCP tool. Runtime `McpToolset` assignments are read-only:
 
-The deterministic scheduler alone calls demo-inbox delivery. Agents do not import repositories or open SQLite connections. The MCP server runs over internal STDIO only. No external communication occurs in Milestone 3.
+| Agent | Runtime ADK tools |
+| --- | --- |
+| `CoordinatorAgent` | None (no tools, no sub_agents) |
+| `DiscussionAgent` | None |
+| `ContractAgent` | `get_contract_template` |
+| `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications` |
+| `SafetyAuditAgent` | `evaluate_automation_policy` |
+
+All state-changing MCP calls are performed exclusively by a trusted persistence adapter that runs outside the ADK agent runtime. The adapter accepts a `SafetyValidationReceipt` produced by deterministic validation code, verifies its HMAC-SHA-256 signature and TTL, and only then calls the underlying mutating MCP tool. This ensures that no LLM output, prompt injection, or agent tool call can directly create, update, or delete domain state.
+
+The deterministic scheduler alone calls demo-inbox delivery. Agents do not import repositories or open SQLite connections. The MCP server runs over internal STDIO only.
+
+### Cryptographic persistence gates
+
+The trusted persistence adapter enforces two cryptographic gate types:
+
+**ReviewedTermsAttestation** — Produced after deterministic extraction validates discussion facts.
+
+- Algorithm: HMAC-SHA-256 over canonical JSON of the reviewed terms payload.
+- TTL: 15 minutes from issuance.
+- Verification: `hmac.compare_digest` comparison; expired or tampered attestations are rejected.
+- The attestation proves that the extraction pipeline completed without modification.
+
+**SafetyValidationReceipt** — Produced after all deterministic safety checks pass for a candidate mutation.
+
+- Algorithm: HMAC-SHA-256 binding the candidate type and content hash.
+- TTL: 5 minutes from issuance.
+- All deterministic checks (contract state, signature status, idempotency, automation policy, scope-change pause) must pass before the receipt is issued.
+- The adapter verifies the receipt signature and TTL before executing the mutation.
+
+Named adapter methods (not generic MCP passthrough):
+
+```text
+persist_validated_discussion_facts()   → create_project_from_terms + save_discussion_facts
+persist_validated_contract_draft()     → create_contract_version
+queue_validated_routine_update()       → queue_routine_update
+create_validated_scope_change_request() → create_scope_change_request
+```
+
+A `SafetyValidationReceipt` must never be accepted from an LLM response, MCP tool result, API request body, agent trace, or UI input. It is created and consumed entirely within trusted server-side code.
 
 ### Validation and safe errors
 
@@ -166,6 +199,12 @@ test_prompt_injection_cannot_override_contract_or_send_policy
 test_agent_tool_permissions_are_restricted
 test_scheduler_and_agent_actions_are_audit_logged
 test_no_external_send_or_signing_tools_exist
+test_agents_have_no_mutating_mcp_tools
+test_persistence_adapter_rejects_expired_receipt
+test_persistence_adapter_rejects_tampered_receipt
+test_receipt_not_accepted_from_llm_or_api_input
+test_reviewed_terms_attestation_hmac_verification
+test_adapter_methods_are_named_not_generic_passthrough
 ```
 
 Any failure is a release blocker.

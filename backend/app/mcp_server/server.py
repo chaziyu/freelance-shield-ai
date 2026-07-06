@@ -239,10 +239,9 @@ def create_project_from_terms(
     title: str,
     source_platform: str,
     client_name: str | None = None,
-    **kwargs,
 ) -> dict[str, Any]:
     req = CreateProjectFromTermsRequest(
-        title=title, source_platform=source_platform, client_name=client_name, **kwargs
+        title=title, source_platform=source_platform, client_name=client_name
     )
     with Session(engine) as session:
         project = service.create_project(
@@ -252,6 +251,7 @@ def create_project_from_terms(
             source_platform=req.source_platform,
         )
         session.commit()
+        session.refresh(project)
         return {"project": serialize_entity(project)}
 
 
@@ -263,7 +263,6 @@ def save_discussion_facts(
     missing_fields: list[str],
     risk_flags: list[str],
     raw_input: str,
-    **kwargs,
 ) -> dict[str, Any]:
     req = SaveDiscussionFactsRequest(
         project_id=UUID(project_id),
@@ -271,7 +270,6 @@ def save_discussion_facts(
         missing_fields=missing_fields,
         risk_flags=risk_flags,
         raw_input=raw_input,
-        **kwargs,
     )
     with Session(engine) as session:
         snapshot = service.save_discussion_facts(
@@ -288,8 +286,8 @@ def save_discussion_facts(
 
 @mcp.tool()
 @safe_tool
-def get_contract_template(**kwargs) -> dict[str, Any]:
-    GetContractTemplateRequest(**kwargs)
+def get_contract_template() -> dict[str, Any]:
+    GetContractTemplateRequest()
     return {
         "template": {
             "name": "statement_of_work_v1",
@@ -319,7 +317,6 @@ def create_contract_version(
     payment_terms: str | None = None,
     effective_start_date: str | None = None,
     milestone_plan_json: str | None = None,
-    **kwargs,
 ) -> dict[str, Any]:
     start_date = None
     if effective_start_date:
@@ -335,7 +332,6 @@ def create_contract_version(
         payment_terms=payment_terms,
         effective_start_date=start_date,
         milestone_plan_json=milestone_plan_json,
-        **kwargs,
     )
     with Session(engine) as session:
         agreement = service.create_agreement_draft(
@@ -352,15 +348,14 @@ def create_contract_version(
             milestone_plan_json=req.milestone_plan_json,
         )
         session.commit()
+        session.refresh(agreement)
         return {"agreement": serialize_entity(agreement)}
 
 
 @mcp.tool()
 @safe_tool
-def create_signature_request(agreement_version_id: str, **kwargs) -> dict[str, Any]:
-    req = CreateSignatureRequestRequest(
-        agreement_version_id=UUID(agreement_version_id), **kwargs
-    )
+def create_signature_request(agreement_version_id: str) -> dict[str, Any]:
+    req = CreateSignatureRequestRequest(agreement_version_id=UUID(agreement_version_id))
     with Session(engine) as session:
         agreement = service.transition_to_pending_signature(
             session=session,
@@ -373,8 +368,8 @@ def create_signature_request(agreement_version_id: str, **kwargs) -> dict[str, A
 
 @mcp.tool()
 @safe_tool
-def get_latest_active_contract(project_id: str, **kwargs) -> dict[str, Any]:
-    req = GetLatestActiveContractRequest(project_id=UUID(project_id), **kwargs)
+def get_latest_active_contract(project_id: str) -> dict[str, Any]:
+    req = GetLatestActiveContractRequest(project_id=UUID(project_id))
     with Session(engine) as session:
         agreement = service.get_latest_active_contract(
             session=session, project_id=req.project_id
@@ -385,12 +380,11 @@ def get_latest_active_contract(project_id: str, **kwargs) -> dict[str, Any]:
 @mcp.tool()
 @safe_tool
 def create_milestones_from_contract(
-    project_id: str, agreement_version_id: str, **kwargs
+    project_id: str, agreement_version_id: str
 ) -> dict[str, Any]:
     req = CreateMilestonesFromContractRequest(
         project_id=UUID(project_id),
         agreement_version_id=UUID(agreement_version_id),
-        **kwargs,
     )
     with Session(engine) as session:
         milestones = service.create_milestones_from_contract(
@@ -399,13 +393,15 @@ def create_milestones_from_contract(
             agreement_version_id=req.agreement_version_id,
         )
         session.commit()
+        for m in milestones:
+            session.refresh(m)
         return {"milestones": serialize_entity(milestones)}
 
 
 @mcp.tool()
 @safe_tool
-def get_due_communications(project_id: str, **kwargs) -> dict[str, Any]:
-    req = GetDueCommunicationsRequest(project_id=UUID(project_id), **kwargs)
+def get_due_communications(project_id: str) -> dict[str, Any]:
+    req = GetDueCommunicationsRequest(project_id=UUID(project_id))
     with Session(engine) as session:
         comms = service.get_due_communications(
             session=session, project_id=req.project_id
@@ -421,7 +417,6 @@ def queue_routine_update(
     requested_action: str,
     idempotency_key: str,
     milestone_id: str | None = None,
-    **kwargs,
 ) -> dict[str, Any]:
     m_id = UUID(milestone_id) if milestone_id else None
     req = QueueRoutineUpdateRequest(
@@ -430,7 +425,6 @@ def queue_routine_update(
         requested_action=requested_action,
         idempotency_key=idempotency_key,
         milestone_id=m_id,
-        **kwargs,
     )
     with Session(engine) as session:
         message = service.queue_routine_update(
@@ -442,16 +436,15 @@ def queue_routine_update(
             milestone_id=req.milestone_id,
         )
         session.commit()
+        session.refresh(message)
         return {"message": serialize_entity(message)}
 
 
 @mcp.tool()
 @safe_tool
-def create_scope_change_request(
-    client_reply_id: str, summary: str, **kwargs
-) -> dict[str, Any]:
+def create_scope_change_request(client_reply_id: str, summary: str) -> dict[str, Any]:
     req = CreateScopeChangeRequestRequest(
-        client_reply_id=UUID(client_reply_id), summary=summary, **kwargs
+        client_reply_id=UUID(client_reply_id), summary=summary
     )
     with Session(engine) as session:
         sc_req = service.create_scope_change_request(
@@ -469,7 +462,6 @@ def evaluate_automation_policy(
     requested_action: str,
     milestone_id: str | None = None,
     message_type: str | None = None,
-    **kwargs,
 ) -> dict[str, Any]:
     m_id = UUID(milestone_id) if milestone_id else None
     req = EvaluateAutomationPolicyRequest(
@@ -478,7 +470,6 @@ def evaluate_automation_policy(
         requested_action=requested_action,
         milestone_id=m_id,
         message_type=message_type,
-        **kwargs,
     )
     with Session(engine) as session:
         result = service.evaluate_automation_policy(
@@ -494,8 +485,8 @@ def evaluate_automation_policy(
 
 @mcp.tool()
 @safe_tool
-def get_project_timeline(project_id: str, **kwargs) -> dict[str, Any]:
-    req = GetProjectTimelineRequest(project_id=UUID(project_id), **kwargs)
+def get_project_timeline(project_id: str) -> dict[str, Any]:
+    req = GetProjectTimelineRequest(project_id=UUID(project_id))
     with Session(engine) as session:
         timeline = service.get_project_timeline(
             session=session, project_id=req.project_id

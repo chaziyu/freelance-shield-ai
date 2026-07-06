@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This is the target architecture for the corrected contract-driven communication MVP. The current codebase still contains the retired evidence/payment-follow-up domain and must be migrated; this document does not claim that migration is complete.
+Milestones 0–4 are implemented: corrected documentation, persistence, MCP tool surface, ADK agents with the trusted persistence adapter and SafetyValidationReceipt gate. Milestones 5–9 (scheduler, REST API, screens, tests, demo) are pending.
 
 ## System context
 
@@ -10,15 +10,17 @@ This is the target architecture for the corrected contract-driven communication 
 flowchart TD
     User["Freelancer"] --> UI["React + Vite frontend"]
     UI -->|"REST / JSON"| API["FastAPI application"]
-    API --> Coordinator["Google ADK CoordinatorAgent"]
+    API --> WF["AdkWorkflowService"]
+    WF --> Coordinator["Google ADK CoordinatorAgent"]
     Coordinator --> Discussion["DiscussionAgent"]
     Coordinator --> Contract["ContractAgent"]
     Coordinator --> Communication["CommunicationAgent"]
     Coordinator --> Safety["SafetyAuditAgent"]
-    Discussion -->|"filtered tools"| MCP["freelance-project-mcp"]
-    Contract -->|"filtered tools"| MCP
-    Communication -->|"filtered tools"| MCP
-    Safety -->|"policy + audit only"| MCP
+    Contract -.->|"read-only"| MCP["freelance-project-mcp"]
+    Communication -.->|"read-only"| MCP
+    Safety -.->|"read-only"| MCP
+    WF -->|"SafetyValidationReceipt"| Adapter["Trusted persistence adapter"]
+    Adapter --> MCP
     MCP --> Services["Domain services"]
     Services --> Scheduler["Deterministic scheduler and automation policy"]
     Services --> Repositories["Repositories"]
@@ -56,17 +58,19 @@ The public browser UI and REST API are the only user-facing runtime surfaces. Th
 8. **Delivery boundary:** agents may draft or queue; only deterministic scheduler policy may deliver, and only to the built-in demo inbox.
 9. **Time boundary:** storage remains UTC; display GMT preferences never mutate records or ordering.
 
-## Agent permission matrix
+## Agent permission matrix (runtime ADK toolsets)
 
-| Agent | Allowed MCP tools |
-| --- | --- |
-| `CoordinatorAgent` | None |
-| `DiscussionAgent` | `create_project_from_terms`, `save_discussion_facts` |
-| `ContractAgent` | `get_contract_template`, `create_contract_version`, `create_signature_request` |
-| `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications`, `queue_routine_update`, `create_scope_change_request` |
-| `SafetyAuditAgent` | `evaluate_automation_policy` |
+No ADK agent has mutating MCP tools. All mutations go through the trusted persistence adapter gated by a `SafetyValidationReceipt`.
 
-Trusted backend orchestration invokes signature acceptance, milestone progress, scheduler execution, automation pause, milestone creation, and demo-inbox delivery. These operations are not exposed broadly to agents.
+| Agent | Runtime ADK tools | Notes |
+| --- | --- | --- |
+| `CoordinatorAgent` | None | No tools, no `sub_agents`; creates typed intents only |
+| `DiscussionAgent` | None | Returns structured extraction; mutations go through adapter |
+| `ContractAgent` | `get_contract_template` | Read-only template retrieval; contract creation goes through adapter |
+| `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications` | Read-only contract and schedule queries; queuing goes through adapter |
+| `SafetyAuditAgent` | `evaluate_automation_policy` | Read-only policy evaluation; audit logging goes through adapter |
+
+Trusted backend orchestration (the persistence adapter) handles all mutating operations: project creation, discussion-fact persistence, contract version creation, signature requests, queue updates, scope-change requests, milestone creation, signature acceptance, milestone progress, scheduler execution, automation pause, and demo-inbox delivery. These operations are never exposed as agent tools.
 
 ## Core activation flow
 
@@ -75,24 +79,36 @@ sequenceDiagram
     actor F as Freelancer
     participant UI as Frontend
     participant API as FastAPI
+    participant WF as AdkWorkflowService
     participant C as CoordinatorAgent
-    participant A as Discussion/Contract Agent
+    participant A as Specialist Agent
+    participant SA as SafetyAuditAgent
+    participant Adapter as Trusted persistence adapter
     participant MCP as freelance-project-mcp
     participant S as Domain services
     participant DB as SQLite
 
     F->>UI: Paste discussion and review extracted facts
     UI->>API: Submit typed reviewed terms
-    API->>C: Start ADK workflow
-    C->>A: Delegate scoped task
-    A->>MCP: Call allowed typed tool
+    API->>WF: Select workflow method
+    WF->>C: Create typed intent
+    C->>A: Delegate scoped task (no mutating tools)
+    A-->>C: Structured output + trace
+    C-->>WF: Agent output
+    WF->>SA: Evaluate output against policy
+    SA-->>WF: Safety evaluation result
+    WF->>WF: Deterministic server-side validation
+    WF->>WF: Issue SafetyValidationReceipt (HMAC-SHA-256, 5-min TTL)
+    WF->>Adapter: Named persist method + receipt
+    Adapter->>Adapter: Validate receipt signature and expiry
+    Adapter->>MCP: Call mutating MCP tool
     MCP->>S: Validate operation
     S->>DB: Atomic write + audit event
     DB-->>S: Stored project/contract
     S-->>MCP: Safe result
-    MCP-->>A: Tool result
-    A-->>C: Structured output + trace
-    C-->>API: Typed response + trace
+    MCP-->>Adapter: Tool result
+    Adapter-->>WF: Persisted result
+    WF-->>API: Typed response + trace
     API-->>UI: Contract pending signatures
     F->>API: Record freelancer acceptance
     F->>API: Simulate client acceptance
@@ -148,6 +164,52 @@ All primary keys are UUIDs; money is stored as an integer in minor units (e.g. `
 - `AuditEvent`: Append-only safe workflow metadata. Immutable database-level SQLite triggers prevent updates or deletions.
 
 Every significant write and audit event share a transaction.
+
+## Trusted persistence adapter
+
+No ADK agent calls a mutating MCP tool directly. All mutations pass through a trusted persistence adapter that enforces a `SafetyValidationReceipt` gate.
+
+### SafetyValidationReceipt
+
+A `SafetyValidationReceipt` is a non-forgeable token issued by deterministic server-side validation after the `SafetyAuditAgent` approves an agent's output. The receipt contains:
+
+- `workflow_id`: identifies the originating workflow execution.
+- `intent_type`: the validated intent (e.g. `create_project`, `create_contract_version`).
+- `issued_at`: UTC timestamp.
+- `expires_at`: 5 minutes after issuance.
+- `hmac_signature`: HMAC-SHA-256 over the receipt payload using a server-side secret.
+
+The adapter rejects any receipt that is expired, has an invalid signature, or targets the wrong intent type.
+
+### Named adapter methods
+
+Each mutating MCP tool has a corresponding named method on the adapter:
+
+| Adapter method | MCP tool called | Preceding agent |
+| --- | --- | --- |
+| `persist_project_from_terms` | `create_project_from_terms` | DiscussionAgent |
+| `persist_discussion_facts` | `save_discussion_facts` | DiscussionAgent |
+| `persist_contract_version` | `create_contract_version` | ContractAgent |
+| `persist_signature_request` | `create_signature_request` | ContractAgent |
+| `persist_routine_update` | `queue_routine_update` | CommunicationAgent |
+| `persist_scope_change_request` | `create_scope_change_request` | CommunicationAgent |
+
+### ReviewedTermsAttestation
+
+The contract workflow additionally requires a `ReviewedTermsAttestation` — an HMAC-SHA-256 signed attestation that the freelancer reviewed and approved the extracted terms before contract creation. This prevents unreviewed discussion facts from reaching the `ContractAgent`.
+
+### Deterministic check pattern
+
+Every mutation follows the same deterministic pattern:
+
+1. `AdkWorkflowService` selects the workflow method and runs the specialist agent.
+2. `SafetyAuditAgent` evaluates the specialist's output.
+3. Deterministic server-side checks validate business rules (e.g. active contract exists, version matches, terms are reviewed).
+4. A `SafetyValidationReceipt` is issued only if all checks pass.
+5. The named adapter method validates the receipt and calls the corresponding MCP tool.
+6. The MCP tool's domain service performs the atomic write and audit event.
+
+This ensures that no agent output reaches persistence without passing both AI safety review and deterministic validation.
 
 ## Deployment
 

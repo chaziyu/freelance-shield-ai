@@ -2,6 +2,29 @@
 
 This document lists all registered tools for the restricted internal STDIO MCP server named `freelance-project-mcp`.
 
+## Agent access model
+
+As of Milestone 4, no ADK agent holds a mutating MCP tool. Agent runtime `McpToolset` assignments are strictly read-only:
+
+| Agent | Runtime MCP tools |
+| --- | --- |
+| `CoordinatorAgent` | None |
+| `DiscussionAgent` | None |
+| `ContractAgent` | `get_contract_template` |
+| `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications` |
+| `SafetyAuditAgent` | `evaluate_automation_policy` |
+
+All mutating MCP tools (`create_project_from_terms`, `save_discussion_facts`, `create_contract_version`, `create_signature_request`, `queue_routine_update`, `create_scope_change_request`) are callable only by the **trusted persistence adapter**, which runs outside the ADK agent runtime. The adapter verifies a `SafetyValidationReceipt` (HMAC-SHA-256, TTL-bound) before executing any mutation. Named adapter methods map to specific MCP tools:
+
+| Adapter method | MCP tools called |
+| --- | --- |
+| `persist_validated_discussion_facts()` | `create_project_from_terms` + `save_discussion_facts` |
+| `persist_validated_contract_draft()` | `create_contract_version` |
+| `queue_validated_routine_update()` | `queue_routine_update` |
+| `create_validated_scope_change_request()` | `create_scope_change_request` |
+
+Tool definitions, input/output schemas, and STDIO protocol behaviour remain unchanged below.
+
 ## Registered MCP Tools
 
 ### 1. `create_project_from_terms`
@@ -14,7 +37,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: Yes
 - **Server-Derived Audit Action**: `project_created` (actor: `system`)
-- **Future ADK Agent Allowed**: Yes (`DiscussionAgent`)
+- **ADK Agent Access**: No (mutation — trusted persistence adapter only, via `persist_validated_discussion_facts()`)
 - **Forbidden Side Effects**: No external platform contact, no signing, no payment, no browser control.
 
 ### 2. `save_discussion_facts`
@@ -29,7 +52,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: Yes
 - **Server-Derived Audit Action**: `discussion_facts_saved` (actor: `discussion_agent`)
-- **Future ADK Agent Allowed**: Yes (`DiscussionAgent`)
+- **ADK Agent Access**: No (mutation — trusted persistence adapter only, via `persist_validated_discussion_facts()`)
 - **Forbidden Side Effects**: Raw chat text must never be persisted or logged.
 
 ### 3. `get_contract_template`
@@ -39,7 +62,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: No
 - **Server-Derived Audit Action**: None
-- **Future ADK Agent Allowed**: Yes (`ContractAgent`)
+- **ADK Agent Access**: Yes — `ContractAgent` (read-only)
 - **Forbidden Side Effects**: Genuinely read-only, no legal claims or advice.
 
 ### 4. `create_contract_version`
@@ -59,7 +82,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: Yes
 - **Server-Derived Audit Action**: `agreement_draft_created` (actor: `contract_agent`)
-- **Future ADK Agent Allowed**: Yes (`ContractAgent`)
+- **ADK Agent Access**: No (mutation — trusted persistence adapter only, via `persist_validated_contract_draft()`)
 - **Forbidden Side Effects**: No activation, no auto-signature.
 
 ### 5. `create_signature_request`
@@ -70,7 +93,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `STATE_TRANSITION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: Yes
 - **Server-Derived Audit Action**: `agreement_pending_signature` (actor: `contract_agent`)
-- **Future ADK Agent Allowed**: Yes (`ContractAgent`)
+- **ADK Agent Access**: No (mutation — trusted persistence adapter only)
 - **Forbidden Side Effects**: Does not sign or accept.
 
 ### 6. `get_latest_active_contract`
@@ -81,7 +104,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: No
 - **Server-Derived Audit Action**: None
-- **Future ADK Agent Allowed**: Yes (`CommunicationAgent`)
+- **ADK Agent Access**: Yes — `CommunicationAgent` (read-only)
 - **Forbidden Side Effects**: Read-only, no audit event.
 
 ### 7. `create_milestones_from_contract`
@@ -104,7 +127,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: No
 - **Server-Derived Audit Action**: None
-- **Future ADK Agent Allowed**: Yes (`CommunicationAgent`)
+- **ADK Agent Access**: Yes — `CommunicationAgent` (read-only)
 - **Forbidden Side Effects**: Read-only, does not queue/deliver/mutate messages.
 
 ### 9. `queue_routine_update`
@@ -119,7 +142,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: Yes
 - **Server-Derived Audit Action**: `client_message_queued` (actor: `system`)
-- **Future ADK Agent Allowed**: Yes (`CommunicationAgent`)
+- **ADK Agent Access**: No (mutation — trusted persistence adapter only, via `queue_validated_routine_update()`)
 - **Forbidden Side Effects**: No auto-delivery, only routine types.
 
 ### 10. `create_scope_change_request`
@@ -131,7 +154,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: Yes
 - **Server-Derived Audit Action**: `scope_change_detected` (actor: `client`), `project_automation_paused` (actor: `system`)
-- **Future ADK Agent Allowed**: Yes (`CommunicationAgent`)
+- **ADK Agent Access**: No (mutation — trusted persistence adapter only, via `create_validated_scope_change_request()`)
 - **Forbidden Side Effects**: Cannot modify agreement directly.
 
 ### 11. `evaluate_automation_policy`
@@ -146,7 +169,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: No
 - **Server-Derived Audit Action**: None
-- **Future ADK Agent Allowed**: Yes (`SafetyAuditAgent`)
+- **ADK Agent Access**: Yes — `SafetyAuditAgent` (read-only evaluation)
 - **Forbidden Side Effects**: Read-only.
 
 ### 12. `get_project_timeline`
@@ -157,7 +180,7 @@ This document lists all registered tools for the restricted internal STDIO MCP s
 - **Safe Error Codes**: `VALIDATION_ERROR`, `INTERNAL_TOOL_ERROR`
 - **Mutates State**: No
 - **Server-Derived Audit Action**: None
-- **Future ADK Agent Allowed**: Yes (All agents)
+- **ADK Agent Access**: Read-only (available to all agents)
 - **Forbidden Side Effects**: Read-only, no chat text returned.
 
 ---

@@ -294,8 +294,8 @@ class WorkflowRepository:
 
     def list_audit(self, project_id: UUID) -> list[AuditEvent]:
         rows = self._fetch_all(
-            "SELECT * FROM audit_events WHERE project_id = ? ORDER BY created_at ASC",
-            (str(project_id),),
+            "SELECT * FROM audit_events WHERE project_id = ? OR project_id = ? ORDER BY created_at ASC",  # noqa: E501
+            (str(project_id), str(project_id).replace("-", "")),
         )
         return [self._audit_from_row(row) for row in rows]
 
