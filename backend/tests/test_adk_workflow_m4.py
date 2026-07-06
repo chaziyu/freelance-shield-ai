@@ -987,7 +987,20 @@ async def test_coordinator_workflow_authority_regression() -> None:
 
 def test_discussion_agent_schema_association() -> None:
     bundle = build_agent_bundle("mock-model")
-    assert bundle.discussion.output_schema is ExtractedDiscussionFacts
+    assert bundle.discussion.output_schema is None
+    assert bundle.discussion.tools == []
+
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ExtractedDiscussionFacts.model_validate(
+            {
+                "title": "Example",
+                "unexpected_field": "must fail",
+                "missing_fields": [],
+                "risk_flags": [],
+            }
+        )
 
 
 def test_parse_fallback_json_direct() -> None:
