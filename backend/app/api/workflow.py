@@ -18,29 +18,29 @@ from app.schemas.workflow import (
     ProjectDetailResponse,
     TimelineResponse,
 )
-from app.services.adk_workflow import AdkWorkflowService
 from app.services.errors import AppError
 from app.services.workflow import WorkflowService
-from app.services.workflow_backend import (
-    require_configured_workflow_backend,
-    use_local_workflow,
-)
 
 router = APIRouter(prefix="/api", tags=["workflow"])
+
+# IMPORTANT:
+# The current React UI and API schemas are built for WorkflowService.
+# Keep all Step 1–6 actions on this same persistence path.
 service = WorkflowService()
-adk_service = AdkWorkflowService()
 
 
-async def safe_call(fn, *, require_workflow_backend: bool = True):
+async def safe_call(fn):
+    """Run a workflow operation and convert known app errors to safe API errors."""
     try:
-        if require_workflow_backend:
-            require_configured_workflow_backend()
         result = fn()
         return await result if isawaitable(result) else result
     except AppError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message},
+            detail={
+                "code": exc.code,
+                "message": exc.message,
+            },
         ) from exc
 
 
@@ -50,12 +50,24 @@ async def safe_call(fn, *, require_workflow_backend: bool = True):
     status_code=status.HTTP_201_CREATED,
 )
 async def analyse_intake(request: IntakeAnalyseRequest) -> IntakeAnalyseResponse:
-    return await safe_call(
-        lambda: _write(
-            lambda: service.analyse_intake(request),
-            lambda: adk_service.analyse_intake(request),
-        )
-    )
+    """
+    Step 1:
+    Create and persist the project in the same SQLite database
+    that Agreement Studio reads from.
+    """
+    return await safe_call(lambda: service.analyse_intake(request))
+
+
+@router.get(
+    "/projects/{project_id}",
+    response_model=ProjectDetailResponse,
+)
+async def get_project(project_id: UUID) -> ProjectDetailResponse:
+    """
+    Load the exact project created during intake.
+    Used by Agreement Studio and all later workflow pages.
+    """
+    return await safe_call(lambda: service.get_project_detail(project_id))
 
 
 @router.post(
@@ -64,13 +76,15 @@ async def analyse_intake(request: IntakeAnalyseRequest) -> IntakeAnalyseResponse
     status_code=status.HTTP_201_CREATED,
 )
 async def create_agreement(
-    project_id: UUID, request: CreateAgreementRequest
+    project_id: UUID,
+    request: CreateAgreementRequest,
 ) -> CreateAgreementResponse:
+    """
+    Step 2:
+    Create Agreement FS-001 Version 1 for the persisted project.
+    """
     return await safe_call(
-        lambda: _write(
-            lambda: service.create_agreement(project_id, request),
-            lambda: adk_service.create_agreement(project_id, request),
-        )
+        lambda: service.create_agreement(project_id, request),
     )
 
 
@@ -80,13 +94,15 @@ async def create_agreement(
     status_code=status.HTTP_201_CREATED,
 )
 async def record_acceptance(
-    project_id: UUID, request: AcceptanceRequest
+    project_id: UUID,
+    request: AcceptanceRequest,
 ) -> AcceptanceResponse:
+    """
+    Step 3:
+    Record exact acceptance text against the current agreement version.
+    """
     return await safe_call(
-        lambda: _write(
-            lambda: service.record_acceptance(project_id, request),
-            lambda: adk_service.record_acceptance(project_id, request),
-        )
+        lambda: service.record_acceptance(project_id, request),
     )
 
 
@@ -96,53 +112,48 @@ async def record_acceptance(
     status_code=status.HTTP_201_CREATED,
 )
 async def record_evidence(
-    project_id: UUID, request: EvidenceRequest
+    project_id: UUID,
+    request: EvidenceRequest,
 ) -> EvidenceResponse:
+    """
+    Step 4:
+    Record delivery or invoice evidence.
+    """
     return await safe_call(
-        lambda: _write(
-            lambda: service.record_evidence(project_id, request),
-            lambda: adk_service.record_evidence(project_id, request),
-        )
+        lambda: service.record_evidence(project_id, request),
     )
 
 
-@router.post("/projects/{project_id}/follow-up", response_model=FollowUpResponse)
+@router.post(
+    "/projects/{project_id}/follow-up",
+    response_model=FollowUpResponse,
+)
 async def create_follow_up(
-    project_id: UUID, request: FollowUpRequest
+    project_id: UUID,
+    request: FollowUpRequest,
 ) -> FollowUpResponse:
+    """
+    Step 5:
+    Evaluate follow-up policy and create a safe draft where allowed.
+    """
     return await safe_call(
-        lambda: _write(
-            lambda: service.create_follow_up(project_id, request),
-            lambda: adk_service.create_follow_up(project_id, request),
-        )
+        lambda: service.create_follow_up(project_id, request),
     )
 
 
-@router.get("/projects/{project_id}", response_model=ProjectDetailResponse)
-async def get_project(project_id: UUID) -> ProjectDetailResponse:
-    return await safe_call(
-        lambda: service.get_project_detail(project_id),
-        require_workflow_backend=False,
-    )
-
-
-@router.get("/projects/{project_id}/timeline", response_model=TimelineResponse)
+@router.get(
+    "/projects/{project_id}/timeline",
+    response_model=TimelineResponse,
+)
 async def get_timeline(project_id: UUID) -> TimelineResponse:
-    return await safe_call(
-        lambda: service.get_timeline(project_id),
-        require_workflow_backend=False,
-    )
+    """Step 4 timeline/evidence view."""
+    return await safe_call(lambda: service.get_timeline(project_id))
 
 
-@router.get("/projects/{project_id}/audit", response_model=AuditResponse)
+@router.get(
+    "/projects/{project_id}/audit",
+    response_model=AuditResponse,
+)
 async def get_audit(project_id: UUID) -> AuditResponse:
-    return await safe_call(
-        lambda: service.get_audit(project_id),
-        require_workflow_backend=False,
-    )
-
-
-async def _write(local_call, adk_call):
-    if use_local_workflow():
-        return local_call()
-    return await adk_call()
+    """Audit trail view."""
+    return await safe_call(lambda: service.get_audit(project_id))
