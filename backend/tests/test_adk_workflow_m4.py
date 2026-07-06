@@ -1194,3 +1194,57 @@ async def test_discussion_agent_prose_json_workflow_rejection() -> None:
         assert res.ok is False
         assert res.error["code"] == "WORKFLOW_ERROR"
         persist_mock.assert_not_awaited()
+
+
+def test_discussion_agent_prompt_contract() -> None:
+    bundle = build_agent_bundle("mock-model")
+    instruction = bundle.discussion.instruction.lower()
+    assert "missing_fields" in instruction
+    assert "never use project_facts" in instruction
+    assert "use missing_fields, never missing_terms" in instruction
+
+
+@pytest.mark.anyio
+async def test_discussion_agent_legacy_response_rejection() -> None:
+    class LegacyDiscussionMockLlm(MockLlm):
+        async def generate_content_async(self, request, stream: bool = False):
+            sys_inst = ""
+            if request.config and request.config.system_instruction:
+                if isinstance(request.config.system_instruction, str):
+                    sys_inst = request.config.system_instruction
+                elif hasattr(request.config.system_instruction, "parts"):
+                    sys_inst = "".join(
+                        p.text
+                        for p in request.config.system_instruction.parts
+                        if p.text
+                    )
+
+            if "DiscussionAgent" in sys_inst:
+                legacy_facts = {
+                    "project_facts": {},
+                    "missing_terms": []
+                }
+                yield _text_response(json.dumps(legacy_facts))
+                return
+
+            async for response in super().generate_content_async(request, stream):
+                yield response
+
+    service = AdkWorkflowService(LegacyDiscussionMockLlm(model="mock"))
+    input_data = DiscussionWorkflowInput(
+        discussion_text=(
+            "Need a poster by Friday. RM800. Two revisions. "
+            "Payment due after invoice."
+        ),
+        source_platform="Instagram",
+    )
+    from unittest.mock import AsyncMock, patch
+
+    persist_mock = AsyncMock()
+    with patch.object(
+        service, "persist_validated_discussion_facts", new=persist_mock
+    ):
+        result = await service.analyze_discussion(input_data)
+        assert result.ok is False
+        assert result.error["code"] == "WORKFLOW_ERROR"
+        persist_mock.assert_not_awaited()
