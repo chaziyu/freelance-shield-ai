@@ -10,7 +10,7 @@ This is the target `/api` contract for the corrected contract-driven communicati
 - IDs: UUID strings.
 - Timestamps: UTC ISO 8601 strings.
 - Dates and times remain unresolved as `null` when not explicitly supplied or safely normalized.
-- Money: positive decimal-safe amount plus ISO 4217 currency code.
+- Money: positive integer-based amount stored in minor units (`fee_amount_minor` plus ISO 4217 currency code).
 - Enums: uppercase strings exactly as documented.
 - Discussion and reply bodies are untrusted data fields.
 - Routine messages may be delivered only to `DEMO_INBOX`.
@@ -24,7 +24,7 @@ ProjectStatus:
   ACTIVE | SCOPE_CHANGE_PENDING | PAUSED | COMPLETED | CLOSED
 
 AgreementStatus:
-  DRAFT | FREELANCER_ACCEPTED | CLIENT_ACCEPTED | ACTIVE | SUPERSEDED
+  DRAFT | PENDING_SIGNATURE | PARTIALLY_ACCEPTED | ACTIVE | SUPERSEDED
 
 PartyRole:
   FREELANCER | CLIENT
@@ -46,7 +46,7 @@ SendMode:
 
 MessageStatus:
   DRAFT | APPROVAL_REQUIRED | APPROVED | QUEUED |
-  DELIVERED_TO_DEMO_INBOX | ACKNOWLEDGED | BLOCKED
+  DELIVERED_TO_DEMO_INBOX | ACKNOWLEDGED | BLOCKED | CANCELLED
 
 ReplyClassification:
   ACKNOWLEDGEMENT | FEEDBACK | QUESTION | SCOPE_CHANGE | CONCERN
@@ -101,13 +101,14 @@ TraceStatus:
   "agreement_code": "FS-001",
   "version_number": 1,
   "scope": "Design one promotional poster.",
-  "deliverables": ["First draft", "Final poster file"],
+  "deliverables_json": "[\"First draft\", \"Final poster file\"]",
   "revision_limit": 2,
-  "fee_amount": 800,
+  "fee_amount_minor": 80000,
   "currency": "MYR",
   "payment_terms": "Payment due within 7 days of invoice.",
   "effective_start_date": "2026-07-07",
-  "acceptance_status": "DRAFT",
+  "milestone_plan_json": "[...]",
+  "status": "DRAFT",
   "created_at": "2026-07-06T04:05:00Z",
   "activated_at": null
 }
@@ -274,13 +275,10 @@ Creates V1 or the next immutable version from reviewed facts. The backend assign
 ```json
 {
   "scope": "Design one promotional poster.",
-  "deliverables": ["First draft", "Final poster file"],
-  "milestones": [
-    {"title": "First draft", "due_at": "2026-07-08T09:00:00Z"},
-    {"title": "Final files", "due_at": "2026-07-10T09:00:00Z"}
-  ],
+  "deliverables_json": "[\"First draft\", \"Final poster file\"]",
+  "milestone_plan_json": "[{\"title\": \"First draft\", \"due_at\": \"2026-07-08T09:00:00Z\"}, {\"title\": \"Final files\", \"due_at\": \"2026-07-10T09:00:00Z\"}]",
   "revision_limit": 2,
-  "fee_amount": 800,
+  "fee_amount_minor": 80000,
   "currency": "MYR",
   "payment_terms": "Payment due within 7 days of invoice.",
   "effective_start_date": "2026-07-07",

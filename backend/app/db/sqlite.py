@@ -1,7 +1,24 @@
 import sqlite3
 from pathlib import Path
 
+from sqlmodel import SQLModel, text
+
 from app.config import settings
+from app.db.database import engine
+
+# Import all models to ensure metadata registration
+from app.models.domain import (  # noqa: F401
+    AgreementVersion,
+    AuditEvent,
+    ClientMessage,
+    ClientReply,
+    CommunicationDraft,
+    EvidenceEvent,
+    Milestone,
+    Project,
+    ScopeChangeRequest,
+    SignatureRecord,
+)
 
 
 def connect() -> sqlite3.Connection:
@@ -15,74 +32,28 @@ def connect() -> sqlite3.Connection:
 def initialize_database(path: Path | None = None) -> None:
     database_path = path or settings.database_path
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(database_path)
-    try:
-        connection.executescript(
-            """
-            PRAGMA foreign_keys = ON;
 
-            CREATE TABLE IF NOT EXISTS projects (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                client_name TEXT,
-                source_platform TEXT NOT NULL,
-                amount REAL,
-                currency TEXT,
-                deadline TEXT,
-                invoice_due_date TEXT,
-                status TEXT NOT NULL,
-                dispute_flag INTEGER NOT NULL DEFAULT 0,
-                latest_policy_json TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
+    # Initialize SQLModel metadata
+    SQLModel.metadata.create_all(engine)
 
-            CREATE TABLE IF NOT EXISTS agreement_versions (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL REFERENCES projects(id),
-                agreement_code TEXT NOT NULL,
-                version_number INTEGER NOT NULL,
-                scope TEXT NOT NULL,
-                deliverables TEXT NOT NULL,
-                revision_limit INTEGER,
-                amount REAL,
-                currency TEXT,
-                deadline TEXT,
-                payment_terms TEXT,
-                acceptance_status TEXT NOT NULL,
-                accepted_at TEXT,
-                created_at TEXT NOT NULL,
-                UNIQUE(project_id, agreement_code, version_number)
-            );
-
-            CREATE TABLE IF NOT EXISTS evidence_events (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL REFERENCES projects(id),
-                event_type TEXT NOT NULL,
-                summary TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS communication_drafts (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL REFERENCES projects(id),
-                draft_type TEXT NOT NULL,
-                body TEXT NOT NULL,
-                audit_status TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS audit_events (
-                id TEXT PRIMARY KEY,
-                project_id TEXT REFERENCES projects(id),
-                actor TEXT NOT NULL,
-                action TEXT NOT NULL,
-                metadata_json TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            """
+    # Establish triggers to protect audit_events
+    with engine.connect() as connection:
+        connection.execute(
+            text("""
+            CREATE TRIGGER IF NOT EXISTS prevent_audit_update
+            BEFORE UPDATE ON audit_events
+            BEGIN
+                SELECT RAISE(ABORT, 'Updates on audit_events are not allowed');
+            END;
+        """)
+        )
+        connection.execute(
+            text("""
+            CREATE TRIGGER IF NOT EXISTS prevent_audit_delete
+            BEFORE DELETE ON audit_events
+            BEGIN
+                SELECT RAISE(ABORT, 'Deletions on audit_events are not allowed');
+            END;
+        """)
         )
         connection.commit()
-    finally:
-        connection.close()

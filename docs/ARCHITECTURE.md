@@ -136,18 +136,18 @@ The periodic task and `POST /api/internal/run-scheduled-update-check` call the s
 
 ## Domain model
 
-All primary keys are UUIDs; money is decimal-safe; timestamps are UTC.
+All primary keys are UUIDs; money is stored as an integer in minor units (e.g. `fee_amount_minor: int` paired with `currency: str`); timestamps are UTC.
 
-- `Project`: identity, source, state, and automation flag.
-- `AgreementVersion`: immutable contract terms, version, and activation status.
-- `SignatureRecord`: one explicit acceptance per party and version.
-- `Milestone`: contract-derived work checkpoints and freelancer-recorded progress.
-- `ClientMessage`: draft/queue/delivery state and unique idempotency key.
-- `ClientReply`: simulated reply and classification.
-- `ScopeChangeRequest`: detected change requiring review and optional proposed version.
-- `AuditEvent`: append-only safe workflow metadata.
+- `Project`: Identity, source, state, automation flag (`automation_enabled`), and current `active_agreement_version_id` (only one active contract allowed per project, enforced by a SQLite partial unique index).
+- `AgreementVersion`: Immutable contract terms, version, fee details, milestone plan JSON, and lifecycle status (`DRAFT`, `PENDING_SIGNATURE`, `PARTIALLY_ACCEPTED`, `ACTIVE`, `SUPERSEDED`).
+- `SignatureRecord`: Mutual acceptance source of truth. Activation requires exactly one accepted signature record for each role (Freelancer and Client) on the exact version.
+- `Milestone`: Contract-derived work checkpoints. Progress recorded by freelancer or system simulation only (never AI).
+- `ClientMessage`: Draft/queue/delivery state, message type, and unique idempotency key. Undelivered messages are transitioned to `CANCELLED` when a new contract version activates.
+- `ClientReply`: Simulated reply and classification. Supports unsolicited messages with a nullable `client_message_id`.
+- `ScopeChangeRequest`: Detected change requiring review. Automatically pauses automation.
+- `AuditEvent`: Append-only safe workflow metadata. Immutable database-level SQLite triggers prevent updates or deletions.
 
-Every significant write and audit event share a transaction. No audit update or delete operation exists.
+Every significant write and audit event share a transaction.
 
 ## Deployment
 

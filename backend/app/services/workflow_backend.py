@@ -9,7 +9,14 @@ def require_configured_workflow_backend() -> None:
     if os.getenv(LOCAL_WORKFLOW_ENV) == "1":
         return
 
+    if os.getenv("GOOGLE_API_KEY"):
+        return
+
     raise ConfigurationError(
-        "REST-to-ADK coordinator execution is required for production workflow writes. "
-        f"Set {LOCAL_WORKFLOW_ENV}=1 only for local scaffold tests."
+        "Google ADK model configuration is required for workflow writes. "
+        f"Set GOOGLE_API_KEY, or use {LOCAL_WORKFLOW_ENV}=1 only for local tests."
     )
+
+
+def use_local_workflow() -> bool:
+    return os.getenv(LOCAL_WORKFLOW_ENV) == "1"

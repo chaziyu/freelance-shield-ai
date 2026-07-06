@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -255,3 +255,25 @@ class TimelineResponse(BaseModel):
 class AuditResponse(BaseModel):
     project_id: UUID
     events: list[AuditEvent]
+
+
+class IntakeAgentInput(IntakeAnalyseRequest):
+    operation: Literal["analyse_intake"] = "analyse_intake"
+
+
+class AgreementAgentInput(CreateAgreementRequest):
+    operation: Literal["create_agreement"] = "create_agreement"
+    project_id: UUID
+
+
+class FollowUpAgentInput(FollowUpRequest):
+    operation: Literal["create_follow_up"] = "create_follow_up"
+    project_id: UUID
+
+
+class SafetyAuditAgentInput(BaseModel):
+    operation: Literal["audit_draft"] = "audit_draft"
+    project_id: UUID
+    draft_type: DraftType
+    body: str = Field(min_length=1, max_length=5000)
+    dispute_flag: bool

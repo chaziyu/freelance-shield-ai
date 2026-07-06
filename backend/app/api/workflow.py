@@ -1,3 +1,4 @@
+from inspect import isawaitable
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -17,19 +18,25 @@ from app.schemas.workflow import (
     ProjectDetailResponse,
     TimelineResponse,
 )
+from app.services.adk_workflow import AdkWorkflowService
 from app.services.errors import AppError
 from app.services.workflow import WorkflowService
-from app.services.workflow_backend import require_configured_workflow_backend
+from app.services.workflow_backend import (
+    require_configured_workflow_backend,
+    use_local_workflow,
+)
 
 router = APIRouter(prefix="/api", tags=["workflow"])
 service = WorkflowService()
+adk_service = AdkWorkflowService()
 
 
-def safe_call(fn, *, require_workflow_backend: bool = True):
+async def safe_call(fn, *, require_workflow_backend: bool = True):
     try:
         if require_workflow_backend:
             require_configured_workflow_backend()
-        return fn()
+        result = fn()
+        return await result if isawaitable(result) else result
     except AppError as exc:
         raise HTTPException(
             status_code=exc.status_code,
@@ -42,8 +49,13 @@ def safe_call(fn, *, require_workflow_backend: bool = True):
     response_model=IntakeAnalyseResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def analyse_intake(request: IntakeAnalyseRequest) -> IntakeAnalyseResponse:
-    return safe_call(lambda: service.analyse_intake(request))
+async def analyse_intake(request: IntakeAnalyseRequest) -> IntakeAnalyseResponse:
+    return await safe_call(
+        lambda: _write(
+            lambda: service.analyse_intake(request),
+            lambda: adk_service.analyse_intake(request),
+        )
+    )
 
 
 @router.post(
@@ -51,10 +63,15 @@ def analyse_intake(request: IntakeAnalyseRequest) -> IntakeAnalyseResponse:
     response_model=CreateAgreementResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_agreement(
+async def create_agreement(
     project_id: UUID, request: CreateAgreementRequest
 ) -> CreateAgreementResponse:
-    return safe_call(lambda: service.create_agreement(project_id, request))
+    return await safe_call(
+        lambda: _write(
+            lambda: service.create_agreement(project_id, request),
+            lambda: adk_service.create_agreement(project_id, request),
+        )
+    )
 
 
 @router.post(
@@ -62,10 +79,15 @@ def create_agreement(
     response_model=AcceptanceResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def record_acceptance(
+async def record_acceptance(
     project_id: UUID, request: AcceptanceRequest
 ) -> AcceptanceResponse:
-    return safe_call(lambda: service.record_acceptance(project_id, request))
+    return await safe_call(
+        lambda: _write(
+            lambda: service.record_acceptance(project_id, request),
+            lambda: adk_service.record_acceptance(project_id, request),
+        )
+    )
 
 
 @router.post(
@@ -73,34 +95,54 @@ def record_acceptance(
     response_model=EvidenceResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def record_evidence(project_id: UUID, request: EvidenceRequest) -> EvidenceResponse:
-    return safe_call(lambda: service.record_evidence(project_id, request))
+async def record_evidence(
+    project_id: UUID, request: EvidenceRequest
+) -> EvidenceResponse:
+    return await safe_call(
+        lambda: _write(
+            lambda: service.record_evidence(project_id, request),
+            lambda: adk_service.record_evidence(project_id, request),
+        )
+    )
 
 
 @router.post("/projects/{project_id}/follow-up", response_model=FollowUpResponse)
-def create_follow_up(project_id: UUID, request: FollowUpRequest) -> FollowUpResponse:
-    return safe_call(lambda: service.create_follow_up(project_id, request))
+async def create_follow_up(
+    project_id: UUID, request: FollowUpRequest
+) -> FollowUpResponse:
+    return await safe_call(
+        lambda: _write(
+            lambda: service.create_follow_up(project_id, request),
+            lambda: adk_service.create_follow_up(project_id, request),
+        )
+    )
 
 
 @router.get("/projects/{project_id}", response_model=ProjectDetailResponse)
-def get_project(project_id: UUID) -> ProjectDetailResponse:
-    return safe_call(
+async def get_project(project_id: UUID) -> ProjectDetailResponse:
+    return await safe_call(
         lambda: service.get_project_detail(project_id),
         require_workflow_backend=False,
     )
 
 
 @router.get("/projects/{project_id}/timeline", response_model=TimelineResponse)
-def get_timeline(project_id: UUID) -> TimelineResponse:
-    return safe_call(
+async def get_timeline(project_id: UUID) -> TimelineResponse:
+    return await safe_call(
         lambda: service.get_timeline(project_id),
         require_workflow_backend=False,
     )
 
 
 @router.get("/projects/{project_id}/audit", response_model=AuditResponse)
-def get_audit(project_id: UUID) -> AuditResponse:
-    return safe_call(
+async def get_audit(project_id: UUID) -> AuditResponse:
+    return await safe_call(
         lambda: service.get_audit(project_id),
         require_workflow_backend=False,
     )
+
+
+async def _write(local_call, adk_call):
+    if use_local_workflow():
+        return local_call()
+    return await adk_call()

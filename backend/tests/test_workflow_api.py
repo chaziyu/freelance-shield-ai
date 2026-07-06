@@ -1,6 +1,7 @@
 import os
 
 from fastapi.testclient import TestClient
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
 from app.agents.adk_agents import (
     AGREEMENT_TOOLS,
@@ -9,6 +10,7 @@ from app.agents.adk_agents import (
     SAFETY_AUDIT_TOOLS,
     build_agent_bundle,
 )
+from app.api import workflow as workflow_api
 from app.db.sqlite import initialize_database
 from app.main import app
 from app.mcp_server import server as mcp_server
@@ -117,12 +119,22 @@ def test_adk_agents_have_exact_names_and_narrow_toolsets() -> None:
         "FollowUpAgent",
         "SafetyAuditAgent",
     ]
-    assert bundle.coordinator.tools == []
+    assert not any(isinstance(tool, McpToolset) for tool in bundle.coordinator.tools)
+    assert [tool.name for tool in bundle.coordinator.tools] == [
+        "IntakeAgent",
+        "AgreementAgent",
+        "FollowUpAgent",
+        "SafetyAuditAgent",
+    ]
     assert bundle.intake.tools[0].tool_filter == INTAKE_TOOLS
     assert bundle.agreement.tools[0].tool_filter == AGREEMENT_TOOLS
     assert bundle.follow_up.tools[0].tool_filter == FOLLOW_UP_TOOLS
     assert bundle.safety_audit.tools[0].tool_filter == SAFETY_AUDIT_TOOLS
     assert bundle.intake.tools[0].tool_filter != bundle.follow_up.tools[0].tool_filter
+    for agent in bundle.coordinator.sub_agents:
+        assert agent.mode == "task"
+        assert agent.input_schema is not None
+        assert agent.output_schema is not None
 
 
 def test_complete_dispute_flow_returns_safe_clarification_draft() -> None:
@@ -453,6 +465,30 @@ def test_workflow_generation_requires_configured_backend(monkeypatch) -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "configuration_error"
+
+
+def test_configured_production_route_uses_adk_backend(monkeypatch) -> None:
+    called = False
+
+    async def analyse_with_adk(request):
+        nonlocal called
+        called = True
+        return workflow_api.service.analyse_intake(request)
+
+    monkeypatch.delenv("FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "synthetic-test-key")
+    monkeypatch.setattr(workflow_api.adk_service, "analyse_intake", analyse_with_adk)
+
+    response = client.post(
+        "/api/intake/analyse",
+        json={
+            "chat_text": "Need a poster by Friday. RM800. Two revisions.",
+            "source_platform": "Instagram",
+        },
+    )
+
+    assert response.status_code == 201
+    assert called is True
 
 
 def test_read_only_project_routes_do_not_require_workflow_backend(monkeypatch) -> None:
