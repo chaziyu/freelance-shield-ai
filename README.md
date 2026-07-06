@@ -1,100 +1,108 @@
 # FreelanceShield AI
 
-FreelanceShield AI is a planned evidence-first workflow for freelancers who agree work through informal channels. It turns a client chat into structured facts, a versioned agreement, recorded acceptance, an evidence timeline, a safe communication draft, and an append-only audit trail. Generated communications are always drafts for manual review; the product does not send messages, provide legal advice, collect payment, or automate a browser.
+FreelanceShield AI turns an informal freelance discussion into a reviewed, mutually accepted contract, then uses the latest active contract to manage milestones and safe routine project communication through a built-in simulated client inbox.
 
-> Repository status: command-center shell plus the local scaffold workflow path. FastAPI now exposes workflow routes, SQLite-backed project/agreement/evidence/draft/audit persistence, and API-backed Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit UI pages. A real `freelance-evidence-mcp` server and Google ADK agent definitions now exist with narrow tool filters, but REST still uses the gated local scaffold path until the ADK coordinator execution is wired.
+> **Repository status:** the product documentation has been corrected from the earlier evidence/payment-follow-up concept. The current application code still reflects that retired workflow and must be migrated through Milestones 2–9 before this README's target demo is considered implemented.
 
 ## Problem
 
-Informal project discussions often leave scope, price, deadlines, revisions, and acceptance ambiguous. When delivery or payment is disputed, freelancers need an accurate record and neutral wording without pretending the software can establish legal rights or recover payment.
+Freelancers often agree on scope, fee, deadlines, and revisions in informal chat. Repetitive updates consume time, and client replies can introduce extra work without a clear change process. FreelanceShield AI creates a versioned source of truth and automates only routine communication that is supported by the active contract and recorded freelancer actions.
 
-## Solution
-
-The MVP will support one synthetic demo path:
+## Corrected MVP
 
 ```text
-Informal client chat
-→ extracted facts and unresolved terms
-→ Agreement FS-001 Version 1
+informal discussion
+→ extracted and reviewed terms
+→ Contract FS-001 Version 1
+→ freelancer acceptance
 → simulated client acceptance
-→ delivery and invoice evidence
-→ dispute or overdue policy decision
-→ safety-reviewed, draft-only communication
-→ evidence and audit timeline
+→ active contract and milestones
+→ freelancer records milestone progress
+→ safe routine update delivered to built-in demo inbox
+→ simulated client reply classified
+→ possible scope change pauses automation
+→ Contract Version 2
+→ renewed mutual acceptance
+→ full timeline and audit trace
 ```
 
-The product UI follows the command-center direction in [DESIGN.md](DESIGN.md): a dark workflow rail, light task workspace, project state rail, persistent draft-only warning, right-side safety/audit context, and mobile bottom navigation. Wired work preserves this shell and replaces scaffold data page by page with backend API data. Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit are wired to backend data in the local scaffold path.
+The product is not a debt-recovery system. It does not send external messages, sign for either party, collect payment, provide legal advice, or guarantee enforceability or payment.
 
-## Planned architecture
+## Architecture
 
 ```mermaid
 flowchart TD
-    UI["React + Vite frontend"] --> API["FastAPI REST API"]
-    API --> Coordinator["Google ADK CoordinatorAgent"]
-    Coordinator --> Intake["IntakeAgent"]
-    Coordinator --> Agreement["AgreementAgent"]
-    Coordinator --> FollowUp["FollowUpAgent"]
-    Coordinator --> Safety["SafetyAuditAgent"]
-    Intake --> MCP["freelance-evidence-mcp over STDIO"]
-    Agreement --> MCP
-    FollowUp --> MCP
-    Safety --> MCP
-    MCP --> Services["Service and deterministic policy layers"]
-    Services --> Repositories["Repository layer"]
-    Repositories --> DB["SQLite + append-only audit events"]
+    UI["React + Vite command center"] --> API["FastAPI REST API"]
+    API --> C["Google ADK CoordinatorAgent"]
+    C --> D["DiscussionAgent"]
+    C --> K["ContractAgent"]
+    C --> M["CommunicationAgent"]
+    C --> S["SafetyAuditAgent"]
+    D --> MCP["freelance-project-mcp over STDIO"]
+    K --> MCP
+    M --> MCP
+    S --> MCP
+    MCP --> Services["Contract, signature, milestone, queue, reply, scope-change, scheduler, audit services"]
+    Services --> DB[("SQLite")]
+    Services --> Inbox["Built-in simulated client inbox"]
 ```
 
-The MCP server is an internal child process, not a public network service. Agent definitions use separate, narrowly filtered toolsets and never expose SQLite directly. Google ADK must be actively called in the production workflow path before the demo is complete. Tests may isolate model-dependent behavior with controlled fixtures, but the demo implementation must not silently replace ADK agents with a non-ADK shortcut. See [Architecture](docs/ARCHITECTURE.md), [API contract](docs/API_CONTRACT.md), and [Security](docs/SECURITY.md).
+The scheduler, not an AI agent, authorizes and performs delivery to the internal demo inbox after deterministic checks. The MCP server is an internal STDIO process and has no public port.
 
-## Planned agents
+## Agents
 
 | Agent | Responsibility |
 | --- | --- |
-| `CoordinatorAgent` | Route workflows, preserve context, and return real trace events; no persistence tools. |
-| `IntakeAgent` | Extract stated facts and missing terms without guessing. |
-| `AgreementAgent` | Create concise, versioned agreement wording from an approved template. |
-| `FollowUpAgent` | Request deterministic policy evaluation before drafting a permitted response. |
-| `SafetyAuditAgent` | Block unsafe wording and verify the draft-only warning and dispute policy. |
+| `CoordinatorAgent` | Route typed workflow tasks and return trace events; no persistence tools. |
+| `DiscussionAgent` | Extract only stated terms, ambiguity, and missing fields from untrusted discussion data. |
+| `ContractAgent` | Create immutable FS contract versions from reviewed facts and approved templates. |
+| `CommunicationAgent` | Draft contract-backed routine updates and classify client replies. |
+| `SafetyAuditAgent` | Check version, progress evidence, send mode, scope-change state, and wording. |
 
-## Planned MCP tools
+## MCP tool surface
 
-| Tool | Purpose |
+The target internal server is `freelance-project-mcp`.
+
+| Area | Tools |
 | --- | --- |
-| `create_project` | Create a project from validated facts. |
-| `save_extracted_facts` | Store structured intake output. |
-| `get_contract_template` | Return approved agreement sections. |
-| `create_agreement_version` | Create an immutable agreement version. |
-| `record_acceptance` | Validate and record code-and-version acceptance. |
-| `record_evidence_event` | Record acceptance, delivery, invoice, or scope-change evidence. |
-| `get_project_timeline` | Return chronological project events. |
-| `evaluate_follow_up_policy` | Select the permitted draft path deterministically. |
-| `create_draft_record` | Store a safety-reviewed draft. |
-| `append_audit_log` | Append an audit event. |
+| Discussion | `create_project_from_terms`, `save_discussion_facts` |
+| Contract | `get_contract_template`, `create_contract_version`, `create_signature_request`, `record_signature_acceptance`, `get_latest_active_contract` |
+| Milestones | `create_milestones_from_contract`, `record_milestone_progress` |
+| Communication | `get_due_communications`, `queue_routine_update`, `deliver_to_demo_inbox`, `record_client_reply` |
+| Scope change | `create_scope_change_request`, `pause_project_automation`, `evaluate_automation_policy` |
+| Traceability | `get_project_timeline`, `append_audit_log` |
 
-No tool may send messages, control a browser, collect payment, file a claim, submit a complaint, or delete audit history.
+No MCP tool may contact WhatsApp, email, Telegram, Instagram, control a browser, sign for a person, collect payment, file a legal claim, or delete audit history.
 
-## Safety boundaries
+## Safety model
 
-- Client chat is quoted, untrusted data and cannot override system policy.
-- Acceptance must name the matching agreement code and version.
-- Scope changes create a new version and require fresh acceptance.
-- A disputed project can produce only a neutral `DISPUTE_CLARIFICATION` draft.
-- No generated text may claim legal enforceability, legal rights, or guaranteed recovery.
-- Law-specific advice and citations are outside the MVP.
-- Every generated communication must include:
+- AI cannot sign for the freelancer or client.
+- A contract activates only after both parties accept the same latest version.
+- AI cannot mark work ready or complete; the freelancer records milestone progress.
+- Automation uses only the latest mutually accepted active contract.
+- A possible scope change pauses affected automation and creates a reviewable change request.
+- Routine auto-delivery is limited to the built-in demo inbox.
+- Delay, scope-change, payment, dispute, compensation, extension, legal, and contract-interpretation messages require freelancer approval.
+- Approval-only messages include `Draft only — review and send manually.`
+- Scheduler queueing and delivery are idempotent and audited.
+- Discussion and reply text are untrusted data and cannot override policy or tool permissions.
 
-  ```text
-  Draft only — review and send manually.
-  ```
+## Planned screens
 
-- Evidence hashes help detect content changes; they do not prove identity, ownership, authenticity, timing, or legal admissibility.
-- Demo data must be synthetic. Never commit secrets, real client chats, invoices, or personal data.
+1. Discussion Intake
+2. Contract and Signatures
+3. Project Board
+4. Client Inbox
+5. Communication Centre
+6. Timeline and Agent Trace
 
-## Installation and tests
+`DESIGN.md` defines the command-center visual system and responsive behavior.
 
-Prerequisites: Node.js 24+, npm, and Python 3.11+.
+## Local development
 
-### Backend locally
+Prerequisites: Node.js 24+, npm, Python 3.11+, and Docker for the container workflow.
+
+Backend:
 
 ```bash
 cd backend
@@ -103,12 +111,12 @@ source .venv/bin/activate
 python -m pip install -r requirements.lock
 python -m pytest
 ruff check .
-FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1 uvicorn app.main:app --reload --port 8000
+GOOGLE_API_KEY=your_key uvicorn app.main:app --reload --port 8000
 ```
 
-On Windows PowerShell, activate with `.\.venv\Scripts\Activate.ps1` instead of `source .venv/bin/activate`, then use `$env:FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW="1"` before running Uvicorn when you want the local scaffold workflow routes.
+On Windows PowerShell, activate with `.\.venv\Scripts\Activate.ps1` and set `$env:GOOGLE_API_KEY` before starting Uvicorn.
 
-### Frontend locally
+Frontend:
 
 ```bash
 cd frontend
@@ -119,63 +127,75 @@ npm run build
 npm run dev
 ```
 
-Open `http://localhost:5173`. Vite proxies `/api` requests to the local backend at port `8000`.
+Open `http://localhost:5173`; Vite proxies `/api` to FastAPI on port `8000`.
 
-### Docker
-
-An API key is not required for Milestone 1. Compose reads `.env` when present and starts without it.
+Docker:
 
 ```bash
 docker compose up --build
 ```
 
-Open `http://localhost:8000` for the frontend or `http://localhost:8000/api/health` for the health response. The Compose service mounts `./data` at `/app/data` for SQLite persistence.
+Open `http://localhost:8000`. Compose reads optional `.env` configuration and mounts `./data` at `/app/data`.
 
-## Demo
+These commands run the current repository implementation. The corrected workflow will become available only as the roadmap migration is completed.
 
-Use only the synthetic inputs below:
+## Target demo
+
+Use synthetic data only.
+
+Discussion:
 
 ```text
 Need a poster by Friday. RM800. Two revisions.
 ```
 
+Scope-change reply:
+
 ```text
-The poster is incomplete. I will not pay.
+Can you also make an Instagram Story version using the same design?
 ```
 
-The expected result is Agreement `FS-001` Version `1`, simulated matching acceptance, delivery and invoice evidence, a deterministic dispute decision that blocks payment-demand wording, a neutral clarification draft with the manual-review warning, and a complete audit trace. See [Demo script](docs/DEMO_SCRIPT.md).
+The target result is Contract `FS-001` V1, two acceptances, active milestones, a recorded first-draft event, one idempotent routine update in the demo inbox, a classified scope-change reply, paused automation, proposed V2, and a complete audit trace.
 
-## Screenshots
+## Roadmap
 
-Screenshots will be added after the wired UI is verified. The reserved location is `docs/screenshots/`.
+| Milestone | Outcome |
+| --- | --- |
+| 0 | Corrected documentation |
+| 1 | Existing frontend/backend/Docker shell retained where reusable |
+| 2 | Contract, signature, milestone, message, reply, scope-change, and audit persistence |
+| 3 | `freelance-project-mcp` typed tool surface |
+| 4 | Corrected ADK agents and permissions |
+| 5 | Scheduler, idempotency, and automation policy |
+| 6 | Corrected workflow REST API |
+| 7 | Six complete API-backed screens |
+| 8 | Security, unit, integration, and Playwright tests |
+| 9 | Demo, screenshots, seed/reset, and submission materials |
 
 ## Known limitations
 
-- Local scaffold workflow writes are available only with `FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1`; production workflow still needs REST-to-ADK coordinator execution.
-- The current command-center shell uses backend data for the six-page local scaffold workflow, but production workflow is not complete until the ADK coordinator actively drives the MCP tools.
-- Single-user, synthetic-data MVP.
-- No real messaging, payment, legal research, browser automation, file upload, signature, or external platform integration.
-- No claim that stored records or hashes establish legal ownership or admissibility.
+- Current code implements the retired evidence/payment-follow-up workflow and is pending migration.
+- The corrected external-channel production integrations are intentionally absent; delivery is demo-inbox only.
+- Real signatures, accounts, personal data, payment processing, legal advice, and public hosting hardening are out of scope.
+- Team attribution and the final model/hosting choice are pending.
 
-## Capstone requirement mapping
+## Capstone mapping
 
-| Requirement | Planned evidence | Target milestone |
-| --- | --- | --- |
-| Google ADK multi-agent workflow | Five named agents with narrow responsibilities | 4 |
-| Custom MCP server | Internal `freelance-evidence-mcp` over STDIO | 3 |
-| Tool permission separation | One filtered `McpToolset` per agent | 4 |
-| Security tests | Required policy, prompt-injection, and permission tests | 7 |
-| Docker deployability | Multi-stage image and persistent local data volume | 1, finalized in 8 |
-| Polished browser UI | Full workflow, traces, warnings, and audit timeline | 6 |
-
-## Team
-
-Team membership and attribution have not yet been provided by the repository owner.
+| Requirement | Target evidence |
+| --- | --- |
+| Google ADK multi-agent workflow | Five named agents in the real contract/communication path |
+| Custom MCP server | Internal `freelance-project-mcp` over STDIO |
+| Tool separation | One narrow `McpToolset` per specialist |
+| Business automation | Idempotent scheduler and internal demo-inbox delivery |
+| Security | Mutual acceptance, progress, prompt-injection, delivery, and audit tests |
+| Browser UI | Six-screen contract-driven command center |
+| Deployability | Single Docker image with persistent SQLite volume |
 
 ## Project documents
 
 - [Product requirements](PRD.md)
-- [Complete build specification](BUILD_SPEC.md)
+- [Build specification](BUILD_SPEC.md)
+- [Design system](DESIGN.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [API contract](docs/API_CONTRACT.md)
 - [Security model](docs/SECURITY.md)

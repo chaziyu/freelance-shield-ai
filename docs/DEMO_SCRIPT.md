@@ -2,139 +2,196 @@
 
 ## Status and purpose
 
-This is the acceptance script for the MVP and uses synthetic data only. The command-center shell and the Intake/Agreement/Acceptance/Evidence/Follow-Up/Audit local API slices exist. The MCP server and ADK agent definitions exist, but the production demo path is complete only after REST actively executes the ADK coordinator.
+This is the target acceptance script for the corrected MVP and uses synthetic data only. The current application still requires migration from the retired evidence/payment-follow-up workflow before this script can pass.
 
-Target duration: 5–7 minutes.
+Target duration: 6–8 minutes.
 
 ## Preconditions
 
-- The application starts from a fresh clone with `docker compose up --build`.
+- A fresh `docker compose up --build` starts the application.
 - The browser UI and `GET /api/health` are available.
-- The database is empty or reset to synthetic demo state.
-- No real names, chats, invoices, contact details, or credentials appear on screen.
+- Google model configuration is present.
+- The synthetic demo database is empty or reset.
+- No real names, discussions, contact details, contracts, signatures, invoices, credentials, or personal data appear.
 
 ## Synthetic fixtures
 
 Platform: `Instagram`
 
-Client chat:
+Discussion:
 
 ```text
 Need a poster by Friday. RM800. Two revisions.
 ```
 
-Acceptance response:
+Freelancer acceptance:
 
 ```text
-I agree to Agreement FS-001 Version 1.
+I accept Contract FS-001 Version 1 as the freelancer.
 ```
 
-Dispute message:
+Simulated client acceptance:
 
 ```text
-The poster is incomplete. I will not pay.
+I accept Contract FS-001 Version 1 as the client.
 ```
 
-Use a presenter-supplied future calendar date for the deadline because “Friday” alone is relative and must not be guessed. Use a synthetic invoice due date when recording the invoice.
+Scope-change reply:
+
+```text
+Can you also make an Instagram Story version using the same design?
+```
+
+Use presenter-supplied future UTC milestone dates. “Friday” alone remains unresolved until reviewed; the system must not guess it.
 
 ## Walkthrough
 
-### 1. Intake
+### 1. Discussion intake
 
-1. Open **New Project**.
+1. Open **Discussion Intake**.
 2. Select `Instagram`.
-3. Paste the client chat and choose **Analyse chat**.
-4. Show the extracted facts and agent trace.
+3. Paste the discussion and choose **Analyse discussion**.
+4. Show extracted terms and the ADK/MCP trace.
 
 Expected:
 
-- title describes poster design;
-- amount is `800` and currency is `MYR`;
-- revision limit is `2`;
-- normalized deadline and payment terms are unresolved;
+- `DiscussionAgent` extracts poster scope, `MYR 800`, and two revisions;
+- deadline and payment terms are unresolved;
+- deliverables are not invented;
 - the informal-platform risk is visible;
-- trace names `CoordinatorAgent`, `IntakeAgent`, and actual MCP calls;
-- the chat is treated as data, not instructions.
+- injected instructions would remain inert data;
+- trace names `CoordinatorAgent`, `DiscussionAgent`, and actual MCP calls.
 
-### 2. Agreement
+### 2. Review terms and create V1
 
-1. Supply a synthetic absolute deadline and payment terms.
-2. Create the agreement.
-3. Show Agreement `FS-001` Version `1`, its terms, and acceptance status.
-4. Copy or display the generated acceptance request.
-
-Expected:
-
-```text
-Please reply: “I agree to Agreement FS-001 Version 1.”
-```
-
-The page must not claim that the agreement is legally binding or enforceable.
-
-### 3. Acceptance
-
-1. Simulate the exact acceptance response.
-2. Show status `ACCEPTED` and the acceptance evidence event.
-
-Expected: the code and version match, the event has a UTC timestamp and content hash, and both the workflow action and MCP call appear in the audit trail.
-
-Optional negative check: submit acceptance for Version `2`. Expected: safe conflict response, no acceptance state change, and an audited rejection.
-
-### 4. Delivery and invoice evidence
-
-1. Record synthetic delivery evidence.
-2. Record a synthetic invoice and due date.
-3. Show both on the chronological timeline.
-
-Expected: evidence summaries and hashes are visible without any claim that hashes prove authorship, ownership, or legal admissibility.
-
-### 5. Dispute safety path
-
-1. Choose **Simulate Client Dispute**.
-2. Enter the dispute fixture.
-3. Request a follow-up draft.
+1. Add a synthetic absolute deadline, payment terms, and two milestones:
+   - First draft;
+   - Final files.
+2. Review the facts.
+3. Create Contract `FS-001` Version `1`.
 
 Expected:
 
-- project state becomes `DISPUTED` and `dispute_flag` is true;
-- deterministic policy permits only `DISPUTE_CLARIFICATION`;
-- a payment reminder or demand is blocked;
-- `SafetyAuditAgent` reviews the neutral clarification;
-- the visible draft contains `Draft only — review and send manually.`;
-- no message is sent and the only user action is copy/manual review.
+- `ContractAgent` uses only reviewed facts and the approved template;
+- V1 shows scope, deliverables, milestones, revision limit, fee, payment terms, scope-change procedure, and mutual acceptance wording;
+- no legal enforceability claim appears;
+- project state is `CONTRACT_PENDING_SIGNATURE`;
+- no milestone automation is enabled yet.
 
-### 6. Audit trace
+### 3. Mutual acceptance
 
-Open the trace and audit view.
+1. Click **Accept as freelancer** and confirm the exact freelancer text.
+2. Open the built-in simulated client signing view.
+3. Click **Accept as client** and confirm the exact client text.
+
+Expected:
+
+- separate `SignatureRecord` rows exist for `FREELANCER` and `CLIENT`;
+- AI did not create either record;
+- after the first acceptance, V1 remains inactive;
+- after the second matching acceptance, V1 becomes `ACTIVE`;
+- milestones are created and automation is enabled;
+- all transitions are audited.
+
+Optional negative check: try Version `2` acceptance before V2 exists. Expected: `409`, no state change, audited rejection.
+
+### 4. Record milestone progress
+
+1. Open **Project Board**.
+2. Show the active contract version and planned milestones.
+3. Click **Mark first draft ready**.
+
+Expected:
+
+- the freelancer action records `READY_FOR_REVIEW` with a UTC timestamp;
+- no AI agent marks the milestone ready;
+- the event makes a delivery confirmation eligible;
+- the message is not yet duplicated or externally sent.
+
+### 5. Run routine automation
+
+1. Trigger the project scheduler or internal scheduled-update check.
+2. Open **Communication Centre**.
+3. Open **Client Inbox**.
+
+Expected:
+
+- scheduler verifies V1 is the latest active mutually accepted contract;
+- automation is enabled and no scope-change pause exists;
+- the recorded milestone event supports the message;
+- `SafetyAuditAgent` approves the routine wording;
+- one idempotent `DELIVERY_CONFIRMATION` is queued;
+- it is delivered only to the built-in demo inbox;
+- the UI states production channel integrations are deferred.
+
+Run the scheduler again. Expected: zero duplicate messages and an audited duplicate skip.
+
+### 6. Record and classify the client reply
+
+1. In **Client Inbox**, choose **Reply as demo client**.
+2. Enter the scope-change fixture.
+3. Submit the reply.
+
+Expected:
+
+- `CommunicationAgent` classifies it as `SCOPE_CHANGE`;
+- reply text is treated as untrusted data;
+- a `ScopeChangeRequest` is created;
+- affected automation pauses;
+- no extra work is promised or added to V1;
+- no automatic scope-change response is delivered.
+
+### 7. Create Contract V2
+
+1. Review the detected change request.
+2. Accept the proposed change for contract drafting.
+3. Show Contract `FS-001` Version `2` with the added Story adaptation.
+
+Expected:
+
+- V2 is immutable and pending both signatures;
+- V1 remains the latest active contract until V2 mutual acceptance;
+- affected automation remains paused;
+- freelancer and client must separately accept exact V2 wording;
+- after both accept, V2 becomes active and V1 becomes `SUPERSEDED`.
+
+### 8. Timeline and audit
+
+Open **Timeline and Agent Trace**.
 
 Expected sequence:
 
 ```text
-CoordinatorAgent
-→ IntakeAgent
-→ MCP project/facts calls
-→ AgreementAgent
-→ MCP agreement call
-→ trusted acceptance and evidence workflow calls
-→ FollowUpAgent
-→ deterministic dispute policy result
-→ SafetyAuditAgent
-→ approved clarification or audited block
+discussion analysed
+→ reviewed project created
+→ Contract FS-001 V1 created
+→ freelancer accepted V1
+→ client accepted V1
+→ V1 activated
+→ milestones created
+→ freelancer marked first draft ready
+→ routine update queued
+→ delivered to demo inbox
+→ duplicate scheduler run skipped
+→ client reply recorded
+→ reply classified as scope change
+→ automation paused
+→ scope-change request created
+→ Contract V2 created
+→ V2 acceptance pending
 ```
 
-Show audit events for agreement creation, acceptance, evidence, policy decision, tool calls, draft creation, and safety result. The UI trace must originate from backend data.
+Show real backend ADK/MCP traces and append-only audit events without raw prompts, secrets, database paths, or stack traces.
 
 ## Pass criteria
 
-- The complete path works without database edits or refresh workarounds.
-- No missing fact is invented.
-- Acceptance requires the exact current code and version.
-- The dispute blocks demand-style content.
-- Every shown communication carries the draft-only warning.
-- No send, browser, payment, legal, or complaint action exists.
-- Timeline, policy decision, agent trace, and append-only audit events are visible.
-- No secret or real personal data appears in UI, logs, screenshots, or recordings.
-
-## Optional scope-change check
-
-After acceptance, change the deliverable scope. Expected: Agreement `FS-001` Version `2` is created, Version `1` remains unchanged, and current acceptance returns to `PENDING` until the exact Version `2` response is recorded.
+- The complete story works without manual database edits or refresh workarounds.
+- No missing fact, signature, or progress is invented.
+- Contract activation and V2 supersession require both exact acceptances.
+- Scheduler reruns are idempotent.
+- Routine delivery stays inside the demo inbox.
+- Scope change pauses automation and never silently modifies V1.
+- Approval-only messages remain drafts with the manual-review warning.
+- No external send, browser, payment, signing-on-behalf, legal, or complaint action exists.
+- Timeline, message states, agent trace, and audit history are visible.
+- No secret or real personal data appears in the UI, logs, screenshots, or recording.

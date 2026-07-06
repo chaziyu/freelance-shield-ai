@@ -2,556 +2,248 @@
 
 Instructions for AI coding agents working in this repository.
 
-Humans should start with `README.md`. Before changing code, agents must read:
+Before changing code, read:
 
 1. `AGENTS.md`
 2. `BUILD_SPEC.md`
 3. `PRD.md`
-4. `docs/ARCHITECTURE.md`
-5. `docs/API_CONTRACT.md`
-6. `DESIGN.md` when changing frontend, UI copy, user journey, milestone UI scope, or visual workflow structure.
+4. `README.md`
+5. `docs/ARCHITECTURE.md`
+6. `docs/API_CONTRACT.md`
+7. `docs/SECURITY.md`
+8. `docs/DEMO_SCRIPT.md`
+9. `DESIGN.md` for frontend, UI copy, user journey, or workflow changes
 
 If an implementation request conflicts with the safety invariants below, the invariants win unless the repository owner explicitly overrides them.
 
----
+## 1. Product purpose
 
-## 1. What this project is
+FreelanceShield AI is a contract-driven project communication workflow for freelancers. It converts an informal discussion into reviewed terms and a versioned contract, records separate freelancer and simulated-client acceptance, creates milestones, and manages safe project updates through a built-in demo client inbox.
 
-**FreelanceShield AI** is an evidence-first, multi-agent workflow for freelancers who receive work through informal channels such as WhatsApp, Instagram, Telegram, Facebook, or email.
+Required MVP flow:
 
-It converts an informal client chat into:
+```text
+informal discussion
+→ reviewed terms
+→ Contract FS-001 Version 1
+→ freelancer acceptance
+→ simulated client acceptance
+→ active contract
+→ milestones
+→ routine update delivered to the demo inbox
+→ client reply classification
+→ scope-change detection
+→ Contract Version 2
+→ renewed mutual acceptance
+→ audit timeline
+```
 
-* structured project facts;
-* a versioned agreement;
-* recorded client acceptance;
-* an evidence timeline;
-* a safe communication draft for reminders or disputes;
-* an append-only audit trail.
+The product is not a lawyer, debt collector, payment processor, legal enforcement platform, external messaging integration, or browser automation tool.
 
-The product is for the **Agents for Business** capstone track.
+## 2. Non-negotiable safety invariants
 
-It is **not**:
-
-* a lawyer;
-* a debt collector;
-* a payment processor;
-* a legal enforcement platform;
-* an automatic message sender;
-* a browser automation tool.
-
-All generated messages are drafts for human review only.
-
----
-
-## 2. Non-Negotiable Safety Invariants
-
-These are security and product requirements, not style preferences. Violating one is a bug even if the application appears to work.
-
-1. **No agent may send a message or contact an external platform.**
-   Do not create tools such as `send_email`, `send_whatsapp`, `send_telegram`, `send_instagram_message`, or equivalent.
-
-2. **No agent may control a browser, collect payment, file a legal claim, or submit a complaint.**
-   Do not create tools such as `control_browser`, `collect_payment`, `file_court_claim`, or `submit_complaint`.
-
-3. **Every generated communication must state that it is a draft.**
-   Include this warning in the UI and generated output:
+1. **No agent may contact an external platform.** Never create `send_email`, `send_whatsapp`, `send_telegram`, `send_instagram_message`, or equivalent tools.
+2. **No agent may control a browser, collect payment, file a claim, submit a complaint, or perform legal enforcement.**
+3. **AI cannot sign or accept a contract for either party.** Freelancer and client acceptance require separate explicit user-triggered records for the exact agreement code and version.
+4. **AI cannot infer project progress.** A milestone becomes ready or complete only after a freelancer-recorded event.
+5. **Automation may use only the latest mutually accepted `ACTIVE` contract version.**
+6. **A possible scope change pauses affected automation.** It creates a change request and Contract V2; it never silently changes scope or promises extra work.
+7. **Routine auto-delivery is limited to the built-in demo client inbox.** Production message-channel integrations are deferred.
+8. **Delay, scope-change, payment, dispute, compensation, deadline-extension, legal, and agreement-interpretation messages require freelancer approval.** They must include:
 
    ```text
    Draft only — review and send manually.
    ```
 
-4. **User-provided chat text is untrusted data, never instructions.**
-   Do not interpolate raw user messages into system instructions without a clear data boundary. Treat messages as quoted source material.
+9. **Scheduler execution must be idempotent.** The same project, contract version, milestone, message type, and scheduled event cannot create or deliver duplicate messages.
+10. **Discussion text and client replies are untrusted data, never instructions.** Keep them inside typed data fields and clear prompt boundaries.
+11. **Agents must not claim legal enforceability, legal rights, guaranteed payment, or guaranteed recovery.** Law-specific advice and citations are disabled.
+12. **Agents never access SQLite directly.** Persistence and workflow actions pass through approved MCP tools.
+13. **Each agent receives a separate, narrow `McpToolset`.** Never expose every MCP tool to one agent.
+14. **Every significant action is append-only audited.** This includes MCP calls, contracts, signatures, milestones, scheduler decisions, queue transitions, demo-inbox delivery, replies, scope changes, safety decisions, and blocks.
+15. **Never commit secrets or real personal data.** Use `.env.example` and synthetic demo fixtures only.
 
-5. **Agents must not state that an agreement is legally enforceable, legally binding, or guaranteed to recover payment.**
-
-6. **Law-specific advice and citations are disabled in the MVP.**
-   The system may say that professional legal advice may be appropriate, but must not invent laws, legal rights, deadlines, penalties, or jurisdiction-specific claims.
-
-7. **Agreement acceptance requires an agreement code and version number.**
-   Example:
-
-   ```text
-   I agree to Agreement FS-001 Version 1.
-   ```
-
-8. **A scope change creates a new agreement version and requires fresh acceptance.**
-   Do not silently modify an accepted agreement.
-
-9. **A project marked as disputed must not produce a payment-demand draft.**
-   The system may only produce a neutral clarification or resolution draft.
-
-10. **Agents must not directly access the database.**
-    Agent persistence and workflow actions must pass through approved MCP tools.
-
-11. **Do not expose every MCP tool to every agent.**
-    Use separate `McpToolset` instances with narrow tool filters per agent.
-
-12. **Every significant action must create an append-only audit event.**
-    This includes agreement creation, version changes, acceptance, evidence records, policy decisions, MCP tool calls, generated drafts, and safety blocks.
-
-13. **Never commit API keys, real client chats, real invoices, or personal data.**
-    Use `.env.example` and synthetic demo data only.
-
----
-
-## 3. Required Product Flow
-
-The MVP must support one complete path:
+## 3. Architecture
 
 ```text
-Informal client chat
-→ IntakeAgent extracts project details
-→ AgreementAgent creates Agreement FS-001 Version 1
-→ Client acceptance is simulated and recorded
-→ Delivery and invoice evidence are recorded
-→ Client dispute or overdue status is simulated
-→ FollowUpAgent requests a deterministic policy decision
-→ SafetyAuditAgent validates the draft
-→ User sees a draft-only communication and audit trail
-```
-
-Primary demo input:
-
-```text
-Need a poster by Friday. RM800. Two revisions.
-```
-
-Primary dispute input:
-
-```text
-The poster is incomplete. I will not pay.
-```
-
-Do not add unrelated features before this flow works end to end.
-
----
-
-## 4. Architecture Rules
-
-```text
-React + Vite Frontend
-        ↓ REST API
-FastAPI Backend
-        ↓
+React + Vite
+    ↓ REST
+FastAPI
+    ↓
 Google ADK CoordinatorAgent
- ├── IntakeAgent
- ├── AgreementAgent
- ├── FollowUpAgent
+ ├── DiscussionAgent
+ ├── ContractAgent
+ ├── CommunicationAgent
  └── SafetyAuditAgent
-        ↓ MCP over STDIO
-freelance-evidence-mcp
-        ↓
-Service Layer
-        ↓
-SQLite Database + Audit Log
+    ↓ MCP over STDIO
+freelance-project-mcp
+    ↓
+Domain services + deterministic scheduler policy
+    ↓
+SQLite + built-in simulated client inbox
 ```
 
-### Layer responsibilities
+Google ADK and the MCP server must be part of the real production workflow. Tests may fake the model boundary, but production code must not replace agents with a silent service-only shortcut. Missing model configuration must fail safely without generating or delivering a message.
 
-| Layer            | Responsibility                                                                               |
-| ---------------- | -------------------------------------------------------------------------------------------- |
-| Frontend         | Forms, visual workflow, evidence timeline, agent trace, user-readable safety warnings        |
-| FastAPI API      | Request validation, authentication placeholder if needed, response contracts, error handling |
-| ADK agents       | Chat extraction, agreement wording, draft wording, safety review                             |
-| MCP server       | Restricted project, agreement, evidence, policy, and audit tools                             |
-| Policy layer     | Deterministic rules for overdue/dispute routing                                              |
-| Service layer    | Domain logic and state validation                                                            |
-| Repository layer | Database access only                                                                         |
-| Database         | Projects, agreements, evidence, drafts, audit events                                         |
-
-Do not place business rules inside React components or LLM prompts when deterministic backend code can enforce them.
-
-### Google ADK requirement
-
-The MVP and capstone demo must include Google ADK in the real workflow path:
-
-* `CoordinatorAgent`, `IntakeAgent`, `AgreementAgent`, `FollowUpAgent`, and `SafetyAuditAgent` must be implemented as Google ADK agents.
-* API workflow code must call the ADK coordinator or an ADK-backed workflow service, not a purely frontend or service-only mock.
-* Tests may use controlled fakes or fixtures around the ADK/model boundary, but production demo code must not silently replace ADK agents with a non-ADK shortcut.
-* Missing Google ADK or model configuration must fail safely with a clear configuration error and no generated draft, not with unsafe fallback wording.
-
----
-
-## 5. Agent Responsibilities and Permissions
+## 4. Agent responsibilities and permissions
 
 ### CoordinatorAgent
 
-Responsibilities:
+- Routes typed workflow requests.
+- Preserves project context and returns trace events.
+- Has no direct persistence or delivery tools.
 
-* route workflow requests to the appropriate sub-agent;
-* preserve project context;
-* return trace events for the UI;
-* never write directly to the database.
+### DiscussionAgent
 
-Tools:
+- Extracts only stated scope, deliverables, fee, deadline, revisions, payment terms, missing fields, and ambiguity.
+- Treats the discussion as quoted untrusted data.
+- Never invents terms.
 
-```text
-No direct persistence tools.
-```
-
-### IntakeAgent
-
-Responsibilities:
-
-* extract scope, amount, deadline, revisions, and missing terms;
-* identify informal-platform risk;
-* never invent missing project facts.
-
-Allowed MCP tools:
+Allowed tools:
 
 ```text
-create_project
-save_extracted_facts
+create_project_from_terms
+save_discussion_facts
 append_audit_log
 ```
 
-### AgreementAgent
+### ContractAgent
 
-Responsibilities:
+- Uses an approved template and freelancer-reviewed terms.
+- Creates immutable Contract `FS-001` versions.
+- Includes milestones, scope-change procedure, and mutual acceptance wording.
+- Never claims legal enforceability.
 
-* retrieve an approved agreement template;
-* create a concise versioned Statement of Work;
-* generate a client acceptance message;
-* preserve unresolved fields instead of guessing them.
-
-Allowed MCP tools:
+Allowed tools:
 
 ```text
 get_contract_template
-create_agreement_version
+create_contract_version
+create_signature_request
 append_audit_log
 ```
 
-### FollowUpAgent
+### CommunicationAgent
 
-Responsibilities:
+- Drafts routine milestone updates from recorded events.
+- Classifies client replies as `ACKNOWLEDGEMENT`, `FEEDBACK`, `QUESTION`, `SCOPE_CHANGE`, or `CONCERN`.
+- Never marks work complete, accepts extra scope, or delivers a message.
 
-* retrieve the project timeline;
-* request a deterministic policy evaluation;
-* create only the allowed type of communication draft.
-
-Allowed MCP tools:
+Allowed tools:
 
 ```text
-get_project_timeline
-evaluate_follow_up_policy
-create_draft_record
+get_latest_active_contract
+get_due_communications
+queue_routine_update
+record_client_reply
+create_scope_change_request
 append_audit_log
 ```
 
 ### SafetyAuditAgent
 
-Responsibilities:
+- Verifies contract version, recorded progress, message mode, and wording.
+- Blocks unsupported progress, legal claims, threats, scope promises, and automatic delivery of approval-only messages.
 
-* validate final draft wording;
-* verify draft-only warning;
-* block legal claims, threats, auto-send language, and unsupported statements;
-* ensure dispute policy was respected.
-
-Allowed MCP tools:
+Allowed tools:
 
 ```text
+evaluate_automation_policy
 append_audit_log
 ```
 
----
+The deterministic scheduler—not an agent—may call `deliver_to_demo_inbox` after policy approval.
 
-## 6. MCP Tool Rules
+## 5. Approved MCP tools
 
-The internal MCP server is named:
-
-```text
-freelance-evidence-mcp
-```
-
-Approved tools:
+Internal server name: `freelance-project-mcp`.
 
 ```text
-create_project
-save_extracted_facts
+create_project_from_terms
+save_discussion_facts
 get_contract_template
-create_agreement_version
-record_acceptance
-record_evidence_event
+create_contract_version
+create_signature_request
+record_signature_acceptance
+get_latest_active_contract
+create_milestones_from_contract
+record_milestone_progress
+get_due_communications
+queue_routine_update
+deliver_to_demo_inbox
+record_client_reply
 get_project_timeline
-evaluate_follow_up_policy
-create_draft_record
+create_scope_change_request
+pause_project_automation
+evaluate_automation_policy
 append_audit_log
 ```
 
 Forbidden tools:
 
 ```text
-send_email
 send_whatsapp
+send_email
 send_telegram
 send_instagram_message
 control_browser
+sign_on_behalf_of_client
+sign_on_behalf_of_freelancer
 collect_payment
 file_legal_claim
-submit_complaint
 delete_audit_log
 ```
 
-### MCP implementation requirements
+All MCP inputs are typed, referenced records are validated, write results are JSON-compatible dictionaries, writes append audit events, and STDIO operational logs go to stderr only.
 
-* Use typed input schemas.
-* Validate project and agreement existence before writes.
-* Return JSON-compatible dictionaries only.
-* Write logs to stderr, never stdout, when using STDIO transport.
-* Do not return secrets, raw stack traces, environment variables, or hidden database details.
-* Each write tool must append an audit event.
+## 6. Domain rules
 
----
+- A contract activates only after both parties accept the same latest version.
+- Milestones are created only from an active contract.
+- V1 remains active until V2 receives both acceptances; affected automation stays paused meanwhile.
+- Routine automatic messages are limited to kickoff confirmation, upcoming milestone reminder, revision-window reminder, recorded delivery confirmation, and recorded invoice availability notice.
+- A scope-change reply creates a `ScopeChangeRequest`; it cannot modify a contract directly.
+- The scheduler owns due-time checks, recipient selection, idempotency, queue status, and demo-inbox delivery.
+- Every state change and rejected attempt is audited in the same transaction where practical; no audit update or delete operation exists.
 
-## 7. State and Versioning Rules
+## 7. Coding conventions
 
-Project states:
+Backend: Python 3.11+, FastAPI, Pydantic, SQLModel or SQLAlchemy, Alembic, Google ADK, MCP SDK, UUID primary keys, and UTC timestamps. Routes stay thin; services enforce domain rules; repositories alone access the database; scheduler policy remains deterministic.
 
-```text
-DRAFT
-→ TERMS_READY
-→ ACCEPTANCE_PENDING
-→ ACCEPTED
-→ IN_PROGRESS
-→ DELIVERED
-→ INVOICED
-→ OVERDUE
-→ CLOSED
+Frontend: React, TypeScript strict mode, Vite, Tailwind, Zod, TanStack Query, clear loading/error/empty states, backend-sourced traces, copyable approval-only drafts, exact enum chips paired with human labels, and user-selectable GMT display offset without mutating UTC data.
 
-Any active state
-→ DISPUTED
-→ RESOLUTION_PENDING
-```
-
-Rules:
-
-* Agreement acceptance is valid only when agreement code and version match.
-* A scope change creates the next version, such as `FS-001 V2`.
-* Creating V2 resets acceptance status to `PENDING`.
-* A project cannot become `OVERDUE` without an invoice due date.
-* A dispute sets `dispute_flag = true`.
-* A disputed project may generate only `DISPUTE_CLARIFICATION` drafts.
-* Draft types must be explicit:
-
-```text
-ACCEPTANCE_REQUEST
-DELIVERY_CONFIRMATION
-PAYMENT_REMINDER
-DISPUTE_CLARIFICATION
-```
-
----
-
-## 8. Coding Conventions
-
-### Backend
-
-* Use Python 3.11+.
-* Use FastAPI, Pydantic, SQLModel or SQLAlchemy, Google ADK, and the MCP Python SDK.
-* Use typed Pydantic request and response models for every API route.
-* Keep API routes thin; domain logic belongs in `services/`.
-* Keep database operations inside `repositories/`.
-* Keep deterministic decision logic inside `policy/`.
-* Use UUID primary keys.
-* Use UTC timestamps.
-* Use SHA-256 for evidence text hashes.
-* Do not claim that a hash proves legal ownership or legal admissibility.
-
-### Frontend
-
-* Use React, TypeScript strict mode, Vite, Tailwind, Zod, and TanStack Query.
-* Keep API types aligned with backend response models.
-* Show clear loading, error, and empty states.
-* Render agent traces from backend-returned data; do not fake them in the frontend.
-* Make all visible draft outputs copyable.
-* Display the draft-only warning prominently.
-* Preserve the current command-center shell direction from `DESIGN.md`: sidebar workflow rail, top warning banner, project state rail, right safety/audit panel, and mobile bottom navigation.
-* Refactor the current shell into reusable components before wiring additional pages:
-
-```text
-WorkflowShell
-WorkflowSidebar
-ProjectHeader
-StateRail
-SafetyPanel
-AuditPreview
-StatusChip
-Panel
-PolicyDecisionPanel
-DraftReviewPanel
-```
-
-* Replace mock data page by page in this order:
-
-```text
-Intake API data
-→ Agreement API data
-→ Acceptance API data
-→ Evidence API data
-→ Follow-Up API data
-→ Audit API data
-```
-
-* Keep `DESIGN.md` as the UI/UX guardrail. The wired build should match the existing visual system unless real backend state exposes a concrete UX problem.
-* Store timestamps in UTC. The UI must let the user choose a display GMT offset using a clock-setting style control, such as a scrollable GMT selector. Do not change persisted UTC values when the display offset changes.
-* Show exact backend enum states only as compact chips. Pair them with human-readable labels in the workflow rail and state rail.
-
-### Naming
-
-* Python: `snake_case`
-* TypeScript: `camelCase`
-* React components: `PascalCase`
-* API resource names: plural nouns
-* Agent names must remain exactly:
+Agent names must remain exactly:
 
 ```text
 CoordinatorAgent
-IntakeAgent
-AgreementAgent
-FollowUpAgent
+DiscussionAgent
+ContractAgent
+CommunicationAgent
 SafetyAuditAgent
 ```
 
----
+## 8. Tests and definition of done
 
-## 9. Testing Requirements
-
-Before marking work complete, run the relevant test suite.
-
-### Backend
+Required commands:
 
 ```bash
 cd backend
 pytest
 ruff check .
-```
 
-### Frontend
-
-```bash
 cd frontend
 npm run lint
 npm run test
 npm run build
-```
-
-### End-to-end
-
-```bash
-cd frontend
 npm run test:e2e
 ```
 
-### Required safety tests
+Required safety coverage includes mutual acceptance, AI progress restrictions, scheduler idempotency, scope-change pause, V2 reacceptance, approval-only message policy, dispute routing, prompt injection, narrow agent tools, and complete scheduler/agent audit logging.
 
-```text
-test_prompt_injection_cannot_override_policy
-test_dispute_blocks_payment_demand
-test_no_agent_has_send_message_tool
-test_no_agent_has_browser_control_tool
-test_no_legal_enforceability_claim_is_generated
-test_scope_change_requires_reacceptance
-test_missing_acceptance_uses_lower_certainty_wording
-test_agent_tool_calls_are_audit_logged
-```
+A feature is done only when implementation, validation, safe errors, audit events, relevant tests, and updated documentation exist. The project is done only when a fresh Docker build completes the full synthetic contract-to-scope-change demo without external messaging or manual database edits.
 
-A failed safety test is a hard blocker.
+## 9. Scope control
 
----
+Build first: discussion extraction, reviewed contract, mutual acceptance, milestones, scheduler policy, demo inbox, reply classification, scope-change request, V2 acceptance, audit trail, ADK agents, MCP tools, and security tests.
 
-## 10. Definition of Done
-
-A feature is complete only when:
-
-* implementation exists;
-* request and response schemas are validated;
-* errors are handled safely;
-* relevant unit or integration tests pass;
-* audit events exist for significant actions;
-* no safety invariant is weakened;
-* documentation is updated if behavior changes;
-* no secret or real personal data was introduced.
-
-The project is complete only when:
-
-```text
-docker compose up --build
-```
-
-starts the application from a fresh clone, and the full demo path works:
-
-```text
-chat
-→ extraction
-→ agreement
-→ acceptance
-→ evidence
-→ dispute
-→ safe clarification draft
-→ audit trace
-```
-
----
-
-## 11. Git Workflow
-
-Use focused commits.
-
-Recommended commit style:
-
-```text
-chore: scaffold frontend backend and MCP structure
-feat: add agreement versioning workflow
-feat: add deterministic dispute policy
-test: add safety regression coverage
-docs: update architecture and demo guide
-```
-
-Do not mix formatting-only changes with feature logic in the same commit.
-
-Before opening a pull request:
-
-```text
-1. Run backend tests.
-2. Run frontend lint, tests, and build.
-3. Run E2E flow where applicable.
-4. Confirm no `.env` or secrets are staged.
-5. Confirm README and API contract remain accurate.
-```
-
----
-
-## 12. Scope Control
-
-Build these first:
-
-```text
-Chat intake
-Agreement FS-001 V1
-Acceptance simulation
-Evidence timeline
-Invoice/delivery recording
-Dispute policy
-Safe draft
-Audit log
-ADK agents
-MCP tools
-Security tests
-```
-
-Do not build these unless the complete MVP works and tests pass:
-
-```text
-Login system
-Real messaging integrations
-PDF export
-Payment integration
-Legal search
-Browser automation
-File uploads
-Multi-user collaboration
-Multiple currency conversion
-External freelancer-platform APIs
-```
+Do not build: real messaging integrations, authentication, payment collection, legal research, browser automation, file uploads, PDF signatures, multi-user collaboration, or external freelancer-platform APIs.

@@ -2,173 +2,230 @@
 
 ## 1. Product summary
 
-FreelanceShield AI is an evidence-first workflow for freelancers whose project terms arrive through informal channels such as WhatsApp, Instagram, Telegram, Facebook, or email. It structures only the facts a user provides, creates versioned agreement text, records simulated client acceptance and project evidence, and produces safety-reviewed communication drafts for manual sending.
+FreelanceShield AI converts informal freelance discussions into a reviewed, mutually accepted contract and then uses the latest active contract as the source of truth for project communication.
 
-This document defines the MVP. Current repository status is command-center shell plus the local scaffold workflow path: SQLite-backed project/agreement/evidence/draft/audit routes and API-backed Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit UI pages. `DESIGN.md` is the UI/UX guardrail for the wired workflow. Google ADK agent definitions and the MCP server exist, but REST-to-ADK coordinator execution remains required for the production demo path.
+The MVP supports two stages:
+
+```text
+Stage 1: informal discussion → reviewed terms → contract → mutual acceptance
+Stage 2: active contract → milestones → routine updates → client replies
+         → scope-change detection → Contract V2 when needed
+```
+
+Documentation now defines this corrected product. The current application still implements the earlier evidence/payment-follow-up workflow and must be migrated milestone by milestone; it must not be presented as satisfying this PRD yet.
 
 ## 2. Problem
 
-Informal conversations can leave scope, fee, due date, revision limits, payment terms, and acceptance unclear. Freelancers need a consistent way to preserve what was stated, identify what is missing, obtain explicit versioned acceptance, and communicate neutrally when delivery or payment is disputed.
+Freelancers often agree on work through informal chat. Terms remain ambiguous, project updates are repetitive, and client replies can introduce extra scope without a clear versioned decision. Freelancers need a workflow that:
 
-The product must help organize records without claiming to determine legal rights, create enforceable contracts, prove ownership, recover money, or act on the user's behalf.
+1. structures only the terms actually discussed;
+2. records separate acceptance by both parties;
+3. derives milestones and communication from the active contract;
+4. automates only safe routine updates;
+5. pauses when a possible scope change appears;
+6. creates a new contract version rather than silently expanding work.
 
-## 3. Users and jobs
+The product does not determine legal rights, create legally enforceable contracts, sign for either party, collect payment, or contact external messaging platforms.
+
+## 3. Primary user and jobs
 
 Primary user: an individual freelancer managing one project at a time in the MVP.
 
 Core jobs:
 
-1. Extract stated project terms from an informal chat without inventing missing facts.
-2. Review and complete a concise Statement of Work.
-3. Request and record acceptance of an exact agreement code and version.
-4. Record delivery, invoice, acceptance, and scope-change evidence.
-5. Determine whether an acceptance request, confirmation, friendly reminder, or dispute clarification is permitted.
-6. Copy a clearly labeled draft for manual review and sending.
-7. Inspect the project timeline, agent trace, and append-only audit trail.
-8. Choose a display GMT offset for timestamps without changing the stored UTC records.
+1. Extract scope, deliverables, fee, deadline, revisions, payment terms, and missing fields from an informal discussion.
+2. Review and edit extracted facts before contract generation.
+3. Create Contract `FS-001` Version `1` from confirmed terms.
+4. Record separate freelancer and simulated-client acceptance.
+5. Activate the contract only when both accept the same version.
+6. Create and manage milestones from the active contract.
+7. Deliver safe routine updates to a built-in demo inbox without repeated manual work.
+8. Record and classify simulated client replies.
+9. Detect possible scope changes, pause affected automation, and create Contract V2.
+10. Inspect the complete timeline, agent trace, queue state, and audit trail.
 
 ## 4. Goals
 
-- Complete the required demo path end to end with synthetic data.
-- Make unresolved terms visible instead of guessing them.
-- Make agreement versions and acceptance state explicit.
-- Enforce dispute routing with deterministic backend policy.
-- Keep agent permissions narrow and persistence behind approved MCP tools.
-- Make every significant workflow action auditable.
-- Present safety boundaries clearly in generated text and the UI.
-- Preserve the command-center user journey from `DESIGN.md`: workflow rail, project header, state rail, focused task workspace, safety/audit context, and mobile bottom navigation.
+- Complete the synthetic contract-to-scope-change story end to end.
+- Keep missing or ambiguous terms visible instead of guessing.
+- Make mutual acceptance and active contract version explicit.
+- Prevent AI from inventing progress or accepting extra work.
+- Automate only deterministic, contract-backed routine messages.
+- Keep all delivery inside the built-in demo client inbox.
+- Make scheduler execution idempotent and auditable.
+- Enforce narrow agent tool permissions through the internal MCP server.
+- Preserve the command-center visual system described in `DESIGN.md`.
 
 ## 5. Non-goals
 
-- Real message sending or external-platform contact.
-- Browser automation.
-- Payment processing or debt collection.
-- Legal research, advice, citations, filing, or enforceability decisions.
-- Authentication, multi-user collaboration, external platform APIs, file uploads, currency conversion, or PDF signatures.
+- WhatsApp, email, Telegram, Instagram, or other external delivery.
+- Real e-signature providers or external client accounts.
+- Signing on behalf of either party.
+- Payment processing, debt collection, or legal enforcement.
+- Legal advice, citations, enforceability claims, court filing, or complaint submission.
+- Authentication, multi-user collaboration, file uploads, PDF signature workflows, currency conversion, or external freelancer-platform APIs.
 
 ## 6. Required workflow
 
-1. The user enters synthetic client chat and selects its source platform.
-2. `IntakeAgent` returns structured facts, missing fields, and risk flags.
-3. The user reviews the facts and creates Agreement `FS-001` Version `1`.
-4. The system provides the exact acceptance request: `Please reply: “I agree to Agreement FS-001 Version 1.”`
-5. The user simulates the matching client response and the system records acceptance evidence.
-6. The user records delivery and invoice evidence.
-7. The user simulates either an overdue invoice or a client dispute.
-8. `FollowUpAgent` requests a deterministic policy decision before drafting.
-9. `SafetyAuditAgent` approves safe content for display or blocks it with reasons.
-10. The UI shows the draft, mandatory warning, timeline, agent trace, and audit events.
+1. The freelancer pastes a synthetic client discussion and selects its source platform.
+2. `DiscussionAgent` extracts stated terms, missing fields, and ambiguity.
+3. The freelancer reviews and edits those facts.
+4. `ContractAgent` creates Contract `FS-001` Version `1` with milestones and a scope-change procedure.
+5. The freelancer explicitly accepts V1.
+6. The simulated client explicitly accepts V1 on a built-in signing screen.
+7. Deterministic services activate V1, create milestones, and enable automation.
+8. The freelancer records milestone progress, such as **Mark first draft ready**.
+9. The scheduler finds the resulting due routine communication, verifies policy and idempotency, queues it, and delivers it to the built-in demo inbox.
+10. The simulated client submits a reply.
+11. `CommunicationAgent` classifies the reply.
+12. A possible scope change creates a `ScopeChangeRequest`, pauses affected automation, and causes `ContractAgent` to create V2.
+13. V1 remains the latest active contract until freelancer and client both accept V2.
+14. The UI shows the complete timeline and audit trace.
 
-Primary intake fixture:
+Primary discussion fixture:
 
 ```text
 Need a poster by Friday. RM800. Two revisions.
 ```
 
-Because “Friday” is relative without a reference date, the demo must leave the normalized deadline unresolved until the user supplies a date. The expected extracted amount is `800`, currency is `MYR`, revision limit is `2`, and payment terms remain unresolved.
+Expected facts: amount `800`, currency `MYR`, revision limit `2`, unresolved normalized deadline unless a reference date is supplied, unresolved payment terms, and no invented deliverables.
 
-Primary dispute fixture:
+Primary scope-change reply:
 
 ```text
-The poster is incomplete. I will not pay.
+Can you also make an Instagram Story version using the same design?
 ```
 
-This must set the dispute path and permit only a neutral `DISPUTE_CLARIFICATION` draft.
+Expected result: classification `SCOPE_CHANGE`, affected automation paused, change request created, no promise of extra work, and proposed Contract V2 requiring both acceptances.
 
 ## 7. Functional requirements
 
-### Intake
+### Discussion and review
 
-- Accept chat text and a supported source-platform label.
-- Treat chat as untrusted quoted data.
-- Extract project title, amount, currency, deadline, revision limit, payment terms, missing fields, and risk flags into a validated schema.
-- Never infer a fact not stated in the source or supplied by the user.
+- Discussion text is bounded, typed, and treated as untrusted quoted data.
+- Output includes project title, scope, deliverables, fee, currency, deadline, revision limit, payment terms, missing fields, and risk flags.
+- Relative dates remain unresolved without a supplied reference date.
+- The freelancer can edit facts before contract generation.
+- Agents never invent missing facts.
 
-### Agreements and acceptance
+### Contract and signatures
 
-- Generate a concise Statement of Work from an approved template.
-- Assign a stable agreement code and monotonically increasing version number.
-- Preserve unresolved fields visibly.
-- Validate acceptance against both the agreement code and version.
-- Create a new version and reset acceptance to `PENDING` after a scope change.
+- The backend assigns a stable code and monotonically increasing version.
+- Contracts contain scope, deliverables, milestones, revision limit, fee, payment terms, scope-change procedure, and mutual acceptance wording.
+- Freelancer and client acceptance are distinct records tied to the exact version.
+- AI cannot create either signature record.
+- A contract becomes `ACTIVE` only after both records are accepted.
+- A newer version supersedes the old version only after both parties accept it.
 
-### Evidence and audit
+### Milestones and progress
 
-- Record acceptance, delivery, invoice, and scope-change evidence with UTC timestamps and SHA-256 content hashes.
-- Display events chronologically.
-- Append an audit event for each significant action, policy decision, MCP call, generated draft, and safety block.
-- Do not expose an audit deletion operation.
+- Milestones come only from the latest active contract.
+- AI may propose milestone definitions but cannot change milestone progress.
+- Only a freelancer action can record `READY_FOR_REVIEW` or `COMPLETED`.
+- Progress events store UTC timestamps, actor, contract version, and audit metadata.
 
-### Follow-up policy and drafts
+### Communication automation
 
-- Evaluate deterministic policy before generating any draft.
-- Route no accepted agreement to `ACCEPTANCE_REQUEST`.
-- Route accepted but not-due work to `DELIVERY_CONFIRMATION` when appropriate.
-- Route overdue, undisputed invoices to `PAYMENT_REMINDER`.
-- Route any dispute to `DISPUTE_CLARIFICATION` and block demand wording.
-- Store a draft only after safety approval.
-- Include `Draft only — review and send manually.` in every generated communication.
-
-### Traceability
-
-- Return actual backend trace events; the frontend must not fabricate them.
-- Identify agent, action, status, timestamp, and safe public metadata without exposing prompts, secrets, stack traces, or hidden database details.
-
-## 8. State model
+Routine automatic message types:
 
 ```text
-DRAFT → TERMS_READY → ACCEPTANCE_PENDING → ACCEPTED → IN_PROGRESS
-→ DELIVERED → INVOICED → OVERDUE → CLOSED
-
-Any active state → DISPUTED → RESOLUTION_PENDING
+KICKOFF_CONFIRMATION
+UPCOMING_MILESTONE_REMINDER
+REVISION_WINDOW_REMINDER
+DELIVERY_CONFIRMATION
+INVOICE_AVAILABILITY_NOTICE
 ```
 
-Constraints:
+They are eligible only when supported by the active contract and recorded project state. Delivery confirmation requires a freelancer-recorded delivery event; invoice availability requires a freelancer-recorded invoice event.
 
-- Acceptance is allowed only from `TERMS_READY` or `ACCEPTANCE_PENDING` and only for the current code and version.
-- `OVERDUE` requires an invoice due date.
-- A dispute sets `dispute_flag = true` and overrides reminder routing.
-- A new agreement version requires fresh acceptance.
+Approval-required types include delay, scope change, payment reminder, dispute response, apology, compensation, deadline extension, legal wording, or agreement interpretation. These remain drafts and include:
+
+```text
+Draft only — review and send manually.
+```
+
+The scheduler, not an agent, delivers approved routine messages only to the demo inbox. Its idempotency key covers project, active contract version, milestone, message type, and scheduled event.
+
+### Client replies and scope changes
+
+- A simulated inbox reply is classified as `ACKNOWLEDGEMENT`, `FEEDBACK`, `QUESTION`, `SCOPE_CHANGE`, or `CONCERN`.
+- Classification does not mutate contract scope.
+- `SCOPE_CHANGE` creates a reviewable request and pauses affected automation.
+- A rejected change resumes the existing active contract workflow.
+- An accepted change creates V2 and requires renewed mutual acceptance.
+
+### Traceability and audit
+
+- Frontend traces come from backend ADK and MCP events; the frontend does not fabricate them.
+- Every contract, signature, milestone, policy, scheduler, queue, delivery, reply, scope change, safety decision, and MCP call creates an append-only audit event.
+- Public metadata is allowlisted and never exposes prompts, secrets, database paths, environment values, or stack traces.
+
+## 8. State models
+
+```text
+Project:
+DISCUSSION_CAPTURED → TERMS_REVIEW → CONTRACT_PENDING_SIGNATURE
+→ ACTIVE → COMPLETED → CLOSED
+ACTIVE → SCOPE_CHANGE_PENDING → ACTIVE
+ACTIVE → PAUSED
+
+AgreementVersion:
+DRAFT → FREELANCER_ACCEPTED → CLIENT_ACCEPTED → ACTIVE
+ACTIVE → SUPERSEDED
+
+Milestone:
+PLANNED → IN_PROGRESS → READY_FOR_REVIEW → COMPLETED
+PLANNED / IN_PROGRESS → BLOCKED
+
+ClientMessage:
+DRAFT → QUEUED → DELIVERED_TO_DEMO_INBOX → ACKNOWLEDGED
+DRAFT → APPROVAL_REQUIRED → APPROVED → QUEUED
+```
 
 ## 9. Safety requirements
 
-The invariants in `AGENTS.md` are release blockers. In particular, no agent can send, browse, collect, file, or submit; user content cannot alter policy; disputed work cannot produce a payment demand; law-specific content is disabled; and no agent receives broad database or MCP access.
+The invariants in `AGENTS.md` are release blockers. In particular:
 
-Evidence hashing is an integrity aid only. It does not prove who authored content, when an external event happened, whether the content is authentic, or whether it is legally admissible.
+- AI cannot sign, infer progress, or silently accept extra scope.
+- Automation uses only the latest mutually accepted active contract.
+- Scope changes pause affected automation.
+- Routine auto-delivery is internal-demo-inbox only.
+- Approval-only messages never auto-deliver.
+- Prompt injection cannot widen tools, change policy, or cause delivery.
+- No legal enforceability, payment guarantee, or external-send claim is allowed.
 
-## 10. User experience requirements
+## 10. User experience
 
-- Responsive pages for intake, agreement, evidence, follow-up, and trace/audit.
-- Command-center shell matching `DESIGN.md`: dark sidebar workflow rail, top warning banner, state rail, right safety/audit panel, and mobile bottom navigation.
-- Reusable shell components before full page wiring: `WorkflowShell`, `WorkflowSidebar`, `ProjectHeader`, `StateRail`, `SafetyPanel`, `AuditPreview`, `StatusChip`, `Panel`, `PolicyDecisionPanel`, and `DraftReviewPanel`.
-- Page-by-page replacement of scaffold data in this order: Intake, Agreement, Acceptance, Evidence, Follow-Up, then Audit.
-- Clear loading, error, empty, blocked, unresolved, and accepted states.
-- Copy controls for agreement acceptance text and all visible drafts.
-- Prominent draft-only warning adjacent to every draft.
-- Human-readable policy reasons and safety blocks.
-- No control or wording that implies automatic sending.
-- User-selectable GMT display offset using a clock-setting style control, while persisted timestamps remain UTC.
+The responsive command center contains six workflow screens:
 
-## 11. Success and acceptance criteria
+1. Discussion Intake
+2. Contract and Signatures
+3. Project Board
+4. Client Inbox
+5. Communication Centre
+6. Timeline and Agent Trace
 
-The MVP succeeds when a fresh clone can run with Docker Compose and a user can complete the synthetic demo without manual database edits or refresh workarounds. Automated checks must prove:
+The UI shows loading, error, empty, paused, approval-required, delivered, and scope-change states. It pairs exact backend enum chips with human labels, renders UTC timestamps using a user-selected GMT offset, and never changes stored UTC values.
 
-- prompt injection cannot override policy;
-- disputes block payment-demand drafts;
-- no agent has send-message or browser-control tools;
-- no legal enforceability claim is generated;
-- scope changes require reacceptance;
-- missing acceptance produces lower-certainty wording;
-- every agent tool call is audit logged.
-- Google ADK agents are present in the production workflow path.
-- UI workflow state, policy, trace, and audit data come from backend responses rather than frontend-fabricated rows.
+## 11. Success criteria
 
-All backend, frontend, safety, integration, and browser tests defined in `AGENTS.md` and `BUILD_SPEC.md` must pass before the project is called complete.
+The MVP succeeds when a fresh Docker run completes the synthetic workflow without database edits or external messaging. Automated checks prove:
+
+1. no automation before mutual acceptance;
+2. AI cannot mark a milestone complete;
+3. scheduler reruns do not duplicate messages;
+4. scope changes pause automation;
+5. V2 requires both acceptances;
+6. delay and other non-routine messages require approval;
+7. dispute replies cannot trigger payment reminders;
+8. prompt injection cannot override contract or delivery policy;
+9. agent MCP permissions are narrow;
+10. every scheduler and agent action is audit logged.
 
 ## 12. Assumptions and open decisions
 
-- Initial deployment is single-user and local; authentication is intentionally out of scope.
-- Persisted timestamps will be UTC. The user chooses the UI display GMT offset.
-- “High value” and “cross-border” policy thresholds are not yet defined. Until defined, they must not trigger numeric or jurisdiction-specific claims.
-- The exact Google ADK model and production hosting environment are not yet selected, but Google ADK must remain in the production workflow path.
-- Team names and attribution are pending.
+- The MVP is local, single-user, and synthetic-data only.
+- The simulated client inbox and signing page are application views, not external accounts.
+- Production messaging integrations, authentication, retention, and hosting remain deferred.
+- The exact Google ADK model remains configurable.
+- Team attribution is pending.

@@ -2,132 +2,155 @@
 
 ## Status and scope
 
-This document describes the target MVP architecture. The current implementation includes the React command-center shell, FastAPI health and workflow routes, SQLite-backed project/agreement/evidence/draft/audit persistence, API-backed Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit UI pages, a real internal MCP server, and Google ADK agent definitions. Workflow writes are gated behind `FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1` until REST actively executes the ADK coordinator in the production path. `DESIGN.md` is the source of truth for frontend shell, visual workflow, and Follow-Up page hierarchy.
+This is the target architecture for the corrected contract-driven communication MVP. The current codebase still contains the retired evidence/payment-follow-up domain and must be migrated; this document does not claim that migration is complete.
 
 ## System context
 
 ```mermaid
 flowchart TD
-    User["Freelancer"] -->|"enters chat, reviews and copies drafts"| UI["React + Vite frontend"]
+    User["Freelancer"] --> UI["React + Vite frontend"]
     UI -->|"REST / JSON"| API["FastAPI application"]
     API --> Coordinator["Google ADK CoordinatorAgent"]
-    Coordinator --> Intake["IntakeAgent"]
-    Coordinator --> Agreement["AgreementAgent"]
-    Coordinator --> FollowUp["FollowUpAgent"]
+    Coordinator --> Discussion["DiscussionAgent"]
+    Coordinator --> Contract["ContractAgent"]
+    Coordinator --> Communication["CommunicationAgent"]
     Coordinator --> Safety["SafetyAuditAgent"]
-    Intake -->|"filtered tools"| MCP["freelance-evidence-mcp"]
-    Agreement -->|"filtered tools"| MCP
-    FollowUp -->|"filtered tools"| MCP
-    Safety -->|"audit only"| MCP
-    MCP --> Services["Domain services and policy"]
+    Discussion -->|"filtered tools"| MCP["freelance-project-mcp"]
+    Contract -->|"filtered tools"| MCP
+    Communication -->|"filtered tools"| MCP
+    Safety -->|"policy + audit only"| MCP
+    MCP --> Services["Domain services"]
+    Services --> Scheduler["Deterministic scheduler and automation policy"]
     Services --> Repositories["Repositories"]
     Repositories --> DB[("SQLite")]
+    Scheduler --> Inbox["Built-in simulated client inbox"]
 ```
 
-The frontend and public REST API are the only user-facing runtime surfaces. The MCP server runs over STDIO as an internal child process and must not listen on a network port. No component sends messages or controls an external platform.
-
-The frontend preserves the `DESIGN.md` command-center shell: dark workflow sidebar, top project header with draft-only warning, project state rail, light task workspace, right safety/audit context panel, and mobile bottom navigation. It must render project state, trace, policy, draft, timeline, and audit data from backend responses rather than fabricated frontend rows.
+The public browser UI and REST API are the only user-facing runtime surfaces. The MCP server is an internal STDIO child process and never listens on a network port. The built-in inbox is local application storage and UI, not an external messaging service.
 
 ## Layer responsibilities
 
 | Layer | Responsibility | Must not do |
 | --- | --- | --- |
-| Frontend | Collect input, render workflow state, copy drafts, show warnings and backend traces | Enforce domain policy or fabricate trace events |
-| REST API | Validate requests, map safe errors, return typed contracts | Contain persistence or policy rules |
-| Coordinator | Route a workflow and collect trace context | Persist directly or generate legal/payment conclusions |
-| Specialist agents | Extract or draft within assigned responsibilities | Access SQLite or unfiltered tools |
-| MCP server | Expose approved typed operations over STDIO | Expose public HTTP, secrets, or forbidden tools |
-| Service layer | Enforce state, versioning, acceptance, evidence, and audit rules | Depend on frontend state or prompt behavior |
-| Policy layer | Select permitted draft types deterministically | Delegate safety-critical routing to an LLM |
-| Repository layer | Perform database reads and writes | Make product-policy decisions |
-| SQLite | Store projects, agreement versions, evidence, drafts, and audit events | Act as proof of external authenticity or legal admissibility |
+| Frontend | Review terms, record user actions, show contracts, milestones, inbox, queue, traces, and audit | Enforce policy or fabricate traces |
+| REST API | Validate typed requests, map errors, return response contracts | Contain persistence or scheduler rules |
+| Coordinator | Route typed tasks and preserve trace context | Persist, sign, record progress, or deliver messages |
+| DiscussionAgent | Extract stated facts and ambiguity | Invent missing terms |
+| ContractAgent | Draft contract versions from reviewed facts | Activate contracts or sign for a party |
+| CommunicationAgent | Draft routine updates and classify replies | Record progress, accept scope, or deliver messages |
+| SafetyAuditAgent | Review message policy and wording | Broaden deterministic delivery authorization |
+| MCP server | Expose approved typed internal operations | Expose public HTTP or forbidden external actions |
+| Domain services | Contract, signature, milestone, queue, reply, scope-change, and audit rules | Depend on frontend state or prompt behavior |
+| Scheduler service | Due-time checks, active-version checks, pause, send mode, idempotency, and demo delivery | Use LLM judgment as final delivery authority |
+| Repositories | Database reads and writes | Make product-policy decisions |
 
 ## Trust boundaries
 
-1. **User input boundary:** client chat is untrusted quoted data. It is passed as a data field, never concatenated into system instructions.
-2. **API boundary:** Pydantic models validate all public requests and responses. Errors expose stable codes and safe messages only.
-3. **Agent/tool boundary:** each agent receives a separate `McpToolset` filtered to its explicit allowlist.
-4. **MCP/STDIO boundary:** MCP messages use stdout; operational logs use stderr. Tool results are JSON-compatible dictionaries without environment, database, prompt, or stack-trace details.
-5. **Persistence boundary:** only repositories access SQLite. Agents reach persistence through approved MCP tools and services.
-6. **Time display boundary:** persisted timestamps remain UTC. The UI may render them with a user-selected GMT offset, but display preference changes never mutate stored timestamps or audit ordering.
+1. **Discussion/reply boundary:** user and client text is untrusted data in typed fields, never interpolated into system instructions.
+2. **API boundary:** Pydantic validates public requests and responses; errors expose stable codes and safe messages.
+3. **Agent boundary:** each specialist receives a separate `McpToolset` allowlist.
+4. **MCP boundary:** protocol messages use stdout; operational logs use stderr; outputs contain no secrets, prompts, environment values, database paths, or stack traces.
+5. **Persistence boundary:** only repositories access SQLite; agents use MCP tools.
+6. **Signature boundary:** only explicit freelancer/client simulation actions create signature records; no model or scheduler can do so.
+7. **Progress boundary:** only freelancer actions record milestone readiness/completion.
+8. **Delivery boundary:** agents may draft or queue; only deterministic scheduler policy may deliver, and only to the built-in demo inbox.
+9. **Time boundary:** storage remains UTC; display GMT preferences never mutate records or ordering.
 
 ## Agent permission matrix
 
 | Agent | Allowed MCP tools |
 | --- | --- |
 | `CoordinatorAgent` | None |
-| `IntakeAgent` | `create_project`, `save_extracted_facts`, `append_audit_log` |
-| `AgreementAgent` | `get_contract_template`, `create_agreement_version`, `append_audit_log` |
-| `FollowUpAgent` | `get_project_timeline`, `evaluate_follow_up_policy`, `create_draft_record`, `append_audit_log` |
-| `SafetyAuditAgent` | `append_audit_log` |
+| `DiscussionAgent` | `create_project_from_terms`, `save_discussion_facts`, `append_audit_log` |
+| `ContractAgent` | `get_contract_template`, `create_contract_version`, `create_signature_request`, `append_audit_log` |
+| `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications`, `queue_routine_update`, `record_client_reply`, `create_scope_change_request`, `append_audit_log` |
+| `SafetyAuditAgent` | `evaluate_automation_policy`, `append_audit_log` |
 
-`record_acceptance` and `record_evidence_event` are approved application workflow tools invoked through trusted backend orchestration, not tools exposed to the four specialist agents.
+Trusted backend orchestration invokes signature acceptance, milestone progress, scheduler execution, automation pause, milestone creation, and demo-inbox delivery. These operations are not exposed broadly to agents.
 
-## Core workflow
+## Core activation flow
 
 ```mermaid
 sequenceDiagram
-    actor U as User
+    actor F as Freelancer
+    participant UI as Frontend
     participant API as FastAPI
     participant C as CoordinatorAgent
-    participant A as Specialist agent
-    participant M as MCP server
-    participant S as Services/policy
-    participant D as SQLite
+    participant A as Discussion/Contract Agent
+    participant MCP as freelance-project-mcp
+    participant S as Domain services
+    participant DB as SQLite
 
-    U->>API: Submit validated workflow request
-    API->>C: Start workflow with untrusted data boundary
+    F->>UI: Paste discussion and review extracted facts
+    UI->>API: Submit typed reviewed terms
+    API->>C: Start ADK workflow
     C->>A: Delegate scoped task
-    A->>M: Call allowed typed tool
-    M->>S: Validate domain operation
-    S->>D: Atomic domain write + audit event
-    D-->>S: Stored records
-    S-->>M: Safe JSON result
-    M-->>A: Tool result
+    A->>MCP: Call allowed typed tool
+    MCP->>S: Validate operation
+    S->>DB: Atomic write + audit event
+    DB-->>S: Stored project/contract
+    S-->>MCP: Safe result
+    MCP-->>A: Tool result
     A-->>C: Structured output + trace
-    C-->>API: Typed result + trace
-    API-->>U: Safe JSON response
+    C-->>API: Typed response + trace
+    API-->>UI: Contract pending signatures
+    F->>API: Record freelancer acceptance
+    F->>API: Simulate client acceptance
+    API->>S: Validate both roles and exact version
+    S->>DB: Activate contract + create milestones + audit
 ```
 
-For follow-up generation, deterministic policy runs before wording is drafted. A dispute always selects `DISPUTE_CLARIFICATION`; later model output cannot widen that permission. `SafetyAuditAgent` then checks the proposed text. A draft is stored and shown only after approval. A blocked attempt still creates an audit event.
+## Scheduler and demo-inbox flow
 
-Google ADK is part of the production workflow path. If ADK or model configuration is missing, workflow endpoints fail safely with configuration-oriented errors and no generated draft. Tests may isolate the model boundary with controlled fakes, but production code must not replace ADK agents with a service-only shortcut.
+```mermaid
+sequenceDiagram
+    participant Trigger as Timer or internal API trigger
+    participant Scheduler as Scheduler service
+    participant Policy as Automation policy
+    participant MCP as freelance-project-mcp
+    participant Inbox as Demo inbox
+    participant DB as SQLite
 
-## Domain and persistence model
-
-All primary keys are UUIDs and persisted timestamps are UTC.
-
-- `Project`: source facts, amount/currency, deadlines, state, and dispute flag.
-- `AgreementVersion`: stable agreement code, version, terms, acceptance status, and acceptance timestamp. Existing versions are not overwritten.
-- `EvidenceEvent`: typed summary, SHA-256 content hash, and timestamp. Hashing canonicalizes line endings to LF, preserves all other text, and hashes its UTF-8 bytes.
-- `CommunicationDraft`: explicit draft type, body, audit status, and timestamp.
-- `AuditEvent`: actor, action, safe metadata, project reference, and timestamp.
-
-Every significant write and policy decision appends an `AuditEvent`. The domain write and its audit event must share one database transaction so neither can succeed alone. The application exposes no update or delete operation for audit events.
-
-SHA-256 hashes can reveal that later text differs from the recorded text. Without trusted identity, signatures, or external timestamping, they do not prove authorship, ownership, authenticity, event time, or legal admissibility.
-
-## State and version invariants
-
-```text
-DRAFT → TERMS_READY → ACCEPTANCE_PENDING → ACCEPTED → IN_PROGRESS
-→ DELIVERED → INVOICED → OVERDUE → CLOSED
-
-Any active state → DISPUTED → RESOLUTION_PENDING
+    Trigger->>Scheduler: Run due communication check
+    Scheduler->>Policy: Check active version, signatures, progress, pause, and send mode
+    Policy-->>Scheduler: ROUTINE_AUTO allowed or blocked
+    Scheduler->>Scheduler: Build deterministic idempotency key
+    Scheduler->>MCP: Queue approved routine update
+    MCP->>DB: Message + audit transaction
+    Scheduler->>MCP: deliver_to_demo_inbox
+    MCP->>Inbox: Persist internal delivered message
+    MCP->>DB: Delivery status + audit transaction
 ```
 
-- Acceptance must match the current agreement code and version and originate from `TERMS_READY` or `ACCEPTANCE_PENDING`.
-- A scope change creates the next immutable version and sets its acceptance to `PENDING`.
-- `OVERDUE` requires an invoice due date.
-- `dispute_flag = true` routes to `DISPUTED` and blocks `PAYMENT_REMINDER`.
-- All generated communication includes `Draft only — review and send manually.`
+The periodic task and `POST /api/internal/run-scheduled-update-check` call the same scheduler method. Re-running the method with the same event cannot duplicate a queue item or delivery.
 
-## Deployment target
+## Scope-change flow
 
-The planned single Docker image uses a Node build stage for the React assets and a Python runtime stage for FastAPI and static files. SQLite is stored at `/app/data/freelance_shield.db`, backed locally by a Compose `./data` volume. The application launches the internal MCP STDIO process as needed; Compose does not publish an MCP port.
+1. The simulated client submits a reply.
+2. `CommunicationAgent` classifies it using the latest active contract.
+3. A possible `SCOPE_CHANGE` creates a `ScopeChangeRequest`; no scope is modified.
+4. Deterministic services pause affected milestones/messages and set project state `SCOPE_CHANGE_PENDING`.
+5. `ContractAgent` may draft V2 from freelancer-reviewed changes.
+6. V1 remains active until both parties accept V2.
+7. On V2 activation, V1 becomes `SUPERSEDED`, milestones are reconciled, and eligible automation resumes.
 
-### Current local runtime path
+## Domain model
 
-Vite serves the React dashboard at `http://localhost:5173` during local frontend development and proxies `/api` to FastAPI at `http://localhost:8000`. In Docker, the Node build stage compiles the frontend, the Python stage copies those static assets beside FastAPI, and one Uvicorn process serves both the SPA and `/api` on port `8000`. Compose optionally reads `.env` and mounts `./data` at `/app/data` for SQLite. Local scaffold workflow writes require `FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1`; without that flag, generation and write routes fail safely with a configuration error.
+All primary keys are UUIDs; money is decimal-safe; timestamps are UTC.
 
-The exact production host, model, backup policy, and process supervisor remain unresolved.
+- `Project`: identity, source, state, and automation flag.
+- `AgreementVersion`: immutable contract terms, version, and activation status.
+- `SignatureRecord`: one explicit acceptance per party and version.
+- `Milestone`: contract-derived work checkpoints and freelancer-recorded progress.
+- `ClientMessage`: draft/queue/delivery state and unique idempotency key.
+- `ClientReply`: simulated reply and classification.
+- `ScopeChangeRequest`: detected change requiring review and optional proposed version.
+- `AuditEvent`: append-only safe workflow metadata.
+
+Every significant write and audit event share a transaction. No audit update or delete operation exists.
+
+## Deployment
+
+The target single image uses a Node build stage and Python runtime stage. FastAPI serves `/api` and the compiled SPA on port `8000`. SQLite is stored at `/app/data/freelance_shield.db` on a Compose volume. Google model configuration is supplied through environment variables. Missing configuration fails safely without queueing or delivering messages.
+
+The exact public host, authentication model, backup policy, retention policy, and production message-channel design remain unresolved and out of the MVP.

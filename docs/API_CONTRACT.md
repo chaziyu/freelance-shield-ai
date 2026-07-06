@@ -2,39 +2,57 @@
 
 ## Status
 
-This is the MVP contract for `/api`. The current implementation includes `GET /api/health`, workflow routes, SQLite-backed persistence, API-backed Intake, Agreement, Acceptance, Evidence, Follow-Up, and Audit UI slices, a real internal MCP server, and Google ADK agent definitions. Local scaffold workflow writes require `FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW=1`; the production path still must replace the REST scaffold shortcut with active Google ADK coordinator execution using the internal MCP server. Implementation may add fields only when documentation and aligned frontend/backend schemas are updated together; the safety behavior below is mandatory.
+This is the target `/api` contract for the corrected contract-driven communication MVP. The current implementation still exposes legacy evidence/payment-follow-up routes; those routes are not part of this target and must be migrated in Milestone 6.
 
 ## Conventions
 
 - Content type: `application/json`.
 - IDs: UUID strings.
-- Timestamps: UTC ISO 8601 strings, for example `2026-07-06T04:00:00Z`.
-- Timestamp display: API responses remain UTC. The frontend may render timestamps using a user-selected GMT offset, for example `GMT+08:00`, without changing stored values or response ordering.
-- Dates: ISO 8601 calendar dates, for example `2026-07-10`.
-- Money: positive JSON number plus ISO 4217 currency code. The persistence implementation must use decimal-safe storage rather than binary floating-point arithmetic.
-- Unknown or unresolved values: `null`; agents must not invent them.
-- Enum values: uppercase strings exactly as listed here.
-- All generated communication bodies include `Draft only — review and send manually.`
+- Timestamps: UTC ISO 8601 strings.
+- Dates and times remain unresolved as `null` when not explicitly supplied or safely normalized.
+- Money: positive decimal-safe amount plus ISO 4217 currency code.
+- Enums: uppercase strings exactly as documented.
+- Discussion and reply bodies are untrusted data fields.
+- Routine messages may be delivered only to `DEMO_INBOX`.
+- Approval-required message bodies include `Draft only — review and send manually.`
 
 ## Shared enums
 
 ```text
 ProjectStatus:
-  DRAFT | TERMS_READY | ACCEPTANCE_PENDING | ACCEPTED | IN_PROGRESS |
-  DELIVERED | INVOICED | OVERDUE | CLOSED | DISPUTED | RESOLUTION_PENDING
+  DISCUSSION_CAPTURED | TERMS_REVIEW | CONTRACT_PENDING_SIGNATURE |
+  ACTIVE | SCOPE_CHANGE_PENDING | PAUSED | COMPLETED | CLOSED
 
-AcceptanceStatus:
-  DRAFT | PENDING | ACCEPTED
+AgreementStatus:
+  DRAFT | FREELANCER_ACCEPTED | CLIENT_ACCEPTED | ACTIVE | SUPERSEDED
 
-EvidenceType:
-  ACCEPTANCE | DELIVERY | INVOICE | SCOPE_CHANGE
+PartyRole:
+  FREELANCER | CLIENT
 
-DraftType:
-  ACCEPTANCE_REQUEST | DELIVERY_CONFIRMATION | PAYMENT_REMINDER |
-  DISPUTE_CLARIFICATION
+SignatureStatus:
+  PENDING | ACCEPTED
 
-DraftAuditStatus:
-  PENDING | APPROVED_TO_SHOW | BLOCKED
+MilestoneStatus:
+  PLANNED | IN_PROGRESS | READY_FOR_REVIEW | COMPLETED | BLOCKED
+
+MessageType:
+  KICKOFF_CONFIRMATION | UPCOMING_MILESTONE_REMINDER |
+  REVISION_WINDOW_REMINDER | DELIVERY_CONFIRMATION |
+  INVOICE_AVAILABILITY_NOTICE | DELAY_NOTICE | SCOPE_CHANGE_RESPONSE |
+  PAYMENT_REMINDER | DISPUTE_RESPONSE
+
+SendMode:
+  ROUTINE_AUTO | APPROVAL_REQUIRED
+
+MessageStatus:
+  DRAFT | APPROVAL_REQUIRED | APPROVED | QUEUED |
+  DELIVERED_TO_DEMO_INBOX | ACKNOWLEDGED | BLOCKED
+
+ReplyClassification:
+  ACKNOWLEDGEMENT | FEEDBACK | QUESTION | SCOPE_CHANGE | CONCERN
+
+ScopeChangeStatus:
+  DETECTED | PENDING_REVIEW | ACCEPTED | REJECTED
 
 TraceStatus:
   STARTED | SUCCEEDED | BLOCKED | FAILED
@@ -42,31 +60,14 @@ TraceStatus:
 
 ## Shared objects
 
-### Project
-
-```json
-{
-  "id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
-  "title": "Poster design",
-  "client_name": null,
-  "source_platform": "Instagram",
-  "amount": 800,
-  "currency": "MYR",
-  "deadline": null,
-  "invoice_due_date": null,
-  "status": "DRAFT",
-  "dispute_flag": false,
-  "created_at": "2026-07-06T04:00:00Z",
-  "updated_at": "2026-07-06T04:00:00Z"
-}
-```
-
-### ExtractedFacts
+### DiscussionFacts
 
 ```json
 {
   "project_title": "Poster design",
-  "amount": 800,
+  "scope": "Design one promotional poster.",
+  "deliverables": [],
+  "fee_amount": 800,
   "currency": "MYR",
   "deadline": null,
   "revision_limit": 2,
@@ -76,7 +77,20 @@ TraceStatus:
 }
 ```
 
-The relative phrase “Friday” is not converted to a date without a supplied reference date.
+### Project
+
+```json
+{
+  "id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
+  "title": "Poster design",
+  "client_name": "Demo Client",
+  "source_platform": "Instagram",
+  "status": "CONTRACT_PENDING_SIGNATURE",
+  "automation_enabled": false,
+  "created_at": "2026-07-06T04:00:00Z",
+  "updated_at": "2026-07-06T04:05:00Z"
+}
+```
 
 ### AgreementVersion
 
@@ -87,110 +101,115 @@ The relative phrase “Friday” is not converted to a date without a supplied r
   "agreement_code": "FS-001",
   "version_number": 1,
   "scope": "Design one promotional poster.",
-  "deliverables": "One final digital poster file.",
+  "deliverables": ["First draft", "Final poster file"],
   "revision_limit": 2,
-  "amount": 800,
+  "fee_amount": 800,
   "currency": "MYR",
-  "deadline": "2026-07-10",
   "payment_terms": "Payment due within 7 days of invoice.",
-  "acceptance_status": "PENDING",
-  "accepted_at": null,
-  "created_at": "2026-07-06T04:05:00Z"
+  "effective_start_date": "2026-07-07",
+  "acceptance_status": "DRAFT",
+  "created_at": "2026-07-06T04:05:00Z",
+  "activated_at": null
 }
 ```
 
-### EvidenceEvent
+### SignatureRecord
 
 ```json
 {
-  "id": "36ae756a-72ea-4677-b451-f45f6b9d2855",
-  "project_id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
-  "event_type": "DELIVERY",
-  "summary": "Synthetic poster delivery recorded.",
-  "content_hash": "64-character-lowercase-sha256-hex-value",
-  "created_at": "2026-07-06T05:00:00Z"
+  "id": "6ce86f2f-7814-4d17-baf6-91ca1a72e605",
+  "agreement_version_id": "b5509f66-955a-4e3e-b925-c82d85fbdf8d",
+  "party_role": "FREELANCER",
+  "signer_display_name": "Demo Freelancer",
+  "acceptance_text": "I accept Contract FS-001 Version 1 as the freelancer.",
+  "status": "ACCEPTED",
+  "accepted_at": "2026-07-06T04:10:00Z"
 }
 ```
 
-Hashes are content-integrity aids only; they do not prove authorship, ownership, authenticity, event time, or legal admissibility.
+### Milestone
 
-### CommunicationDraft
+```json
+{
+  "id": "f93bac35-e9cf-4bb0-a81e-93365a0ef289",
+  "project_id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
+  "agreement_version_id": "b5509f66-955a-4e3e-b925-c82d85fbdf8d",
+  "title": "First draft",
+  "description": "Prepare the first poster draft for review.",
+  "due_at": "2026-07-08T09:00:00Z",
+  "status": "READY_FOR_REVIEW",
+  "completion_recorded_at": "2026-07-08T08:30:00Z",
+  "recorded_by": "freelancer"
+}
+```
+
+### ClientMessage
 
 ```json
 {
   "id": "895e5832-1662-4eb9-ab1d-cc3b9296e170",
   "project_id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
-  "draft_type": "DISPUTE_CLARIFICATION",
-  "body": "Thanks for raising your concern. Please identify the incomplete items so we can compare them with the agreed scope and discuss next steps.\n\nDraft only — review and send manually.",
-  "audit_status": "APPROVED_TO_SHOW",
-  "created_at": "2026-07-06T05:10:00Z"
+  "agreement_version_id": "b5509f66-955a-4e3e-b925-c82d85fbdf8d",
+  "milestone_id": "f93bac35-e9cf-4bb0-a81e-93365a0ef289",
+  "message_type": "DELIVERY_CONFIRMATION",
+  "body": "Your first draft is ready for review. Please share feedback within the agreed revision window.",
+  "send_mode": "ROUTINE_AUTO",
+  "status": "DELIVERED_TO_DEMO_INBOX",
+  "scheduled_for": "2026-07-08T08:30:00Z",
+  "delivered_at": "2026-07-08T08:31:00Z",
+  "idempotency_key": "sha256-hex"
 }
 ```
 
-### TraceEvent
+### ClientReply
 
 ```json
 {
-  "actor": "FollowUpAgent",
-  "action": "evaluate_follow_up_policy",
-  "status": "SUCCEEDED",
-  "timestamp": "2026-07-06T05:10:00Z",
-  "metadata": {
-    "outcome": "DISPUTE_CLARIFICATION"
-  }
-}
-```
-
-Trace metadata is an allowlisted public summary. It must not contain raw prompts, secrets, environment values, hidden database details, or stack traces.
-
-### TimelineSummary
-
-```json
-{
-  "event_count": 6,
-  "latest_event_type": "DRAFT_CREATED",
-  "latest_event_at": "2026-07-06T05:10:00Z",
-  "hash_previews": ["36ae75", "64be01", "895e58"]
-}
-```
-
-Hash previews are short UI labels only. Full hashes remain available on evidence records where needed and are still integrity aids only.
-
-### AuditSummary
-
-```json
-{
-  "event_count": 9,
-  "latest_actor": "SafetyAuditAgent",
-  "latest_action": "draft_approved_to_show",
-  "latest_event_at": "2026-07-06T05:10:00Z"
-}
-```
-
-### AuditEvent
-
-```json
-{
-  "id": "0f975e02-eb3a-419a-a646-b232a59f6e59",
+  "id": "0b16bfea-bd78-45a3-a63f-443ae72b9ee1",
   "project_id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
-  "actor": "SafetyAuditAgent",
-  "action": "draft_approved_to_show",
-  "metadata": {
-    "draft_type": "DISPUTE_CLARIFICATION"
-  },
-  "created_at": "2026-07-06T05:10:00Z"
+  "client_message_id": "895e5832-1662-4eb9-ab1d-cc3b9296e170",
+  "body": "Can you also make an Instagram Story version using the same design?",
+  "classification": "SCOPE_CHANGE",
+  "possible_scope_change": true,
+  "received_at": "2026-07-08T09:00:00Z"
 }
 ```
+
+### ScopeChangeRequest
+
+```json
+{
+  "id": "e8294986-d4c8-407e-a992-3f106fa0a3ec",
+  "project_id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
+  "source_reply_id": "0b16bfea-bd78-45a3-a63f-443ae72b9ee1",
+  "summary": "Client requested an additional Instagram Story format.",
+  "status": "PENDING_REVIEW",
+  "proposed_contract_version_id": null,
+  "created_at": "2026-07-08T09:00:01Z"
+}
+```
+
+### TraceEvent and AuditEvent
+
+```json
+{
+  "actor": "CommunicationAgent",
+  "action": "record_client_reply",
+  "status": "SUCCEEDED",
+  "timestamp": "2026-07-08T09:00:00Z",
+  "metadata": {"classification": "SCOPE_CHANGE"}
+}
+```
+
+Trace and audit metadata is allowlisted. It never contains raw prompts, secrets, environment values, stack traces, or hidden database details.
 
 ## Error contract
-
-All application errors use:
 
 ```json
 {
   "error": {
-    "code": "invalid_state_transition",
-    "message": "The project cannot enter OVERDUE without an invoice due date.",
+    "code": "mutual_acceptance_required",
+    "message": "Both parties must accept the same contract version before activation.",
     "request_id": "c2aa85b5-60bd-4dc2-92cf-fdbd929a24a0",
     "details": []
   }
@@ -199,292 +218,180 @@ All application errors use:
 
 | Status | Use |
 | --- | --- |
-| `400` | Semantically invalid request not covered by field validation |
-| `404` | Project or agreement not found |
-| `409` | Invalid state transition, version conflict, or acceptance mismatch |
-| `422` | Request schema validation failure; `details` may identify invalid fields without echoing sensitive values |
+| `400` | Semantically invalid request |
+| `404` | Referenced resource not found |
+| `409` | Invalid state transition, version conflict, duplicate delivery, or acceptance mismatch |
+| `422` | Request schema validation failure |
 | `500` | Generic safe message and request ID only |
+| `503` | Required ADK/model configuration unavailable |
 
-Safety blocks are expected workflow results, not server failures. They return `200` with `blocked: true`, no displayable draft, and audited reason codes.
+Policy blocks return `200` with explicit `allowed`, `blocked`, and reason-code fields; they are audited expected outcomes.
 
 ## Endpoints
 
-### `POST /api/intake/analyse`
-
-Extract facts and create the initial project through `IntakeAgent` and its allowed MCP tools.
+### `POST /api/discussions/analyse`
 
 Request:
 
 ```json
 {
-  "chat_text": "Need a poster by Friday. RM800. Two revisions.",
+  "discussion_text": "Need a poster by Friday. RM800. Two revisions.",
   "source_platform": "Instagram",
   "reference_date": null
 }
 ```
 
-Rules:
-
-- `chat_text` is required, bounded in implementation, and treated as untrusted data.
-- `source_platform` is a user-facing label, not an external integration.
-- `reference_date` is optional. Without it, relative dates remain unresolved.
-
-Response `201`:
+Response `200`:
 
 ```json
 {
-  "project": {},
-  "extracted_facts": {},
+  "facts": {},
   "trace": []
 }
 ```
 
-The placeholders above carry the shared object shapes. Initial status is `DRAFT` when required terms remain unresolved, otherwise `TERMS_READY`.
+This endpoint does not create a contract. Relative dates remain unresolved without a reference date.
 
-### `POST /api/projects/{project_id}/agreements`
+### `POST /api/projects`
 
-Create Version `1` or the next version through `AgreementAgent`. Existing versions are immutable.
+Creates a project from freelancer-reviewed facts.
 
-Request:
+```json
+{
+  "title": "Poster design",
+  "client_name": "Demo Client",
+  "source_platform": "Instagram",
+  "reviewed_facts": {}
+}
+```
+
+Response `201`: `{ "project": {}, "trace": [] }`, initial state `TERMS_REVIEW`.
+
+### `POST /api/projects/{project_id}/contracts`
+
+Creates V1 or the next immutable version from reviewed facts. The backend assigns code and version.
 
 ```json
 {
   "scope": "Design one promotional poster.",
-  "deliverables": "One final digital poster file.",
+  "deliverables": ["First draft", "Final poster file"],
+  "milestones": [
+    {"title": "First draft", "due_at": "2026-07-08T09:00:00Z"},
+    {"title": "Final files", "due_at": "2026-07-10T09:00:00Z"}
+  ],
   "revision_limit": 2,
-  "amount": 800,
+  "fee_amount": 800,
   "currency": "MYR",
-  "deadline": "2026-07-10",
   "payment_terms": "Payment due within 7 days of invoice.",
-  "change_reason": null
+  "effective_start_date": "2026-07-07",
+  "scope_change_request_id": null
 }
 ```
 
-Response `201`:
+Response `201`: contract, two pending signature requests, project state `CONTRACT_PENDING_SIGNATURE`, and trace.
+
+### `POST /api/contracts/{contract_id}/acceptance`
+
+Records a user-triggered acceptance. It never infers or creates the other party's acceptance.
 
 ```json
 {
-  "agreement": {},
-  "acceptance_message": "Please reply: “I agree to Agreement FS-001 Version 1.”",
-  "project_status": "ACCEPTANCE_PENDING",
+  "party_role": "FREELANCER",
+  "signer_display_name": "Demo Freelancer",
+  "acceptance_text": "I accept Contract FS-001 Version 1 as the freelancer."
+}
+```
+
+The simulated client uses `party_role: "CLIENT"` and exact client wording. Once both roles accept the same latest version, the response activates the contract, creates milestones, enables automation, and supersedes the previous active version when applicable. Duplicate or mismatched acceptance returns `409` and is audited.
+
+### `POST /api/projects/{project_id}/milestones/{milestone_id}/progress`
+
+Freelancer-only application action:
+
+```json
+{
+  "status": "READY_FOR_REVIEW",
+  "note": "First draft recorded as ready."
+}
+```
+
+AI output cannot call this route or tool. The response contains the milestone and any newly due communication event.
+
+### `POST /api/projects/{project_id}/scheduler/run`
+
+Runs the same scheduler service as the periodic/internal trigger for one project. It checks active version, mutual acceptance, automation state, progress evidence, send mode, safety, and idempotency.
+
+Response:
+
+```json
+{
+  "queued": 1,
+  "delivered_to_demo_inbox": 1,
+  "skipped_duplicates": 0,
+  "blocked": [],
   "trace": []
 }
 ```
 
-Rules:
+### `POST /api/internal/run-scheduled-update-check`
 
-- The backend assigns `agreement_code` and `version_number`; clients cannot choose them.
-- Missing terms remain visibly unresolved and prevent acceptance until the service considers terms ready.
-- When a current agreement exists, `change_reason` is required, the next version is created with `PENDING` acceptance, and a `SCOPE_CHANGE` evidence event is appended.
+Runs the same scheduler method across eligible projects. This is for predictable local demos/tests and is not a public production scheduler endpoint.
 
-### `POST /api/projects/{project_id}/acceptance`
-
-Record simulated acceptance through the trusted application workflow and approved MCP tools. This endpoint does not contact a client.
-
-Request:
+### `POST /api/projects/{project_id}/client-replies`
 
 ```json
 {
-  "agreement_code": "FS-001",
-  "version_number": 1,
-  "acceptance_text": "I agree to Agreement FS-001 Version 1."
+  "client_message_id": "895e5832-1662-4eb9-ab1d-cc3b9296e170",
+  "body": "Can you also make an Instagram Story version using the same design?"
 }
 ```
 
-Response `201`:
+Response records the reply, classification, possible-scope-change flag, automation state, optional change request, and trace. Reply text is untrusted data and cannot itself change contract terms.
+
+### `POST /api/projects/{project_id}/scope-changes`
+
+Freelancer reviews a detected request:
 
 ```json
 {
-  "agreement": {},
-  "acceptance_evidence": {},
-  "project_status": "ACCEPTED",
-  "trace": []
+  "scope_change_request_id": "e8294986-d4c8-407e-a992-3f106fa0a3ec",
+  "decision": "ACCEPTED",
+  "summary": "Add one Instagram Story adaptation."
 }
 ```
 
-The code, version, and normalized acceptance text must all refer to the current agreement. Mismatch returns `409`, changes no acceptance state, and appends a safe rejection audit event.
-
-### `POST /api/projects/{project_id}/evidence`
-
-Record delivery or invoice evidence through the trusted application workflow.
-
-Delivery request:
-
-```json
-{
-  "event_type": "DELIVERY",
-  "summary": "Synthetic poster delivery recorded.",
-  "invoice_due_date": null
-}
-```
-
-Invoice request:
-
-```json
-{
-  "event_type": "INVOICE",
-  "summary": "Synthetic invoice INV-DEMO-001 recorded.",
-  "invoice_due_date": "2026-07-13"
-}
-```
-
-Response `201`:
-
-```json
-{
-  "evidence": {},
-  "project_status": "INVOICED",
-  "trace": []
-}
-```
-
-Public requests accept only `DELIVERY` or `INVOICE`; acceptance evidence comes from the acceptance endpoint and scope-change evidence comes from agreement versioning. An invoice requires `invoice_due_date`. The server canonicalizes summary line endings to LF, preserves all other text, hashes the UTF-8 bytes with SHA-256, and performs the state transition.
-
-### `POST /api/projects/{project_id}/follow-up`
-
-Evaluate policy, generate only the permitted draft, run safety review, and store an approved draft.
-
-Undisputed request:
-
-```json
-{
-  "dispute": null
-}
-```
-
-Explicit simulated dispute request:
-
-```json
-{
-  "dispute": {
-    "declared": true,
-    "message": "The poster is incomplete. I will not pay."
-  }
-}
-```
-
-The message is untrusted evidence. `declared: true` is an explicit user simulation that sets the deterministic dispute path; the model does not decide whether policy applies.
-
-Approved response `200`:
-
-```json
-{
-  "policy": {
-    "allowed_draft_type": "DISPUTE_CLARIFICATION",
-    "reason_codes": ["PROJECT_DISPUTED"],
-    "blocked_draft_types": ["PAYMENT_REMINDER"]
-  },
-  "safety": {
-    "safe_to_show": true,
-    "blocked": false,
-    "warnings": ["Draft only — review and send manually."],
-    "blocked_reasons": []
-  },
-  "draft": {},
-  "trace": []
-}
-```
-
-Blocked response `200`:
-
-```json
-{
-  "policy": {
-    "allowed_draft_type": "DISPUTE_CLARIFICATION",
-    "reason_codes": ["PROJECT_DISPUTED"],
-    "blocked_draft_types": ["PAYMENT_REMINDER"]
-  },
-  "safety": {
-    "safe_to_show": false,
-    "blocked": true,
-    "warnings": [],
-    "blocked_reasons": ["PAYMENT_DEMAND_NOT_ALLOWED_DURING_DISPUTE"]
-  },
-  "draft": null,
-  "trace": []
-}
-```
-
-Policy order:
-
-1. Any dispute → `DISPUTE_CLARIFICATION`.
-2. No accepted current agreement → `ACCEPTANCE_REQUEST` with lower-certainty wording.
-3. Accepted agreement and invoice overdue by server UTC date → `PAYMENT_REMINDER`.
-4. Accepted agreement with no overdue invoice → `DELIVERY_CONFIRMATION`.
-
-The server does not accept a requested draft type from the client.
+An accepted request creates proposed V2 with pending signatures. A rejected request records the decision and resumes eligible V1 automation. Neither result silently changes the active contract.
 
 ### `GET /api/projects/{project_id}`
 
-Response `200`:
-
-```json
-{
-  "project": {},
-  "current_agreement": {},
-  "latest_policy": null,
-  "latest_draft": null,
-  "timeline_summary": null,
-  "audit_summary": null,
-  "latest_trace": []
-}
-```
-
-`current_agreement` is `null` before an agreement exists.
-The shell uses this response to render the project header, state rail, safety panel, and audit preview. The frontend must not fabricate these rows when the backend has not returned them.
+Returns project, latest active contract, pending proposed contract, signature statuses, milestones, automation status, pending scope change, message summary, audit summary, and latest backend trace.
 
 ### `GET /api/projects/{project_id}/timeline`
 
-Response `200`:
+Returns chronological discussion, contract, signature, milestone, queue, delivery, reply, scope-change, and version-activation events. Public timeline entries omit private audit metadata.
 
-```json
-{
-  "project_id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
-  "events": [
-    {
-      "event_type": "AGREEMENT_CREATED",
-      "summary": "Agreement FS-001 Version 1 created.",
-      "timestamp": "2026-07-06T04:05:00Z",
-      "reference_id": "b5509f66-955a-4e3e-b925-c82d85fbdf8d"
-    }
-  ]
-}
-```
+### `GET /api/projects/{project_id}/messages`
 
-Events are ordered oldest first. Timeline types may include project, agreement, acceptance, evidence, policy, and draft events; they do not expose private audit metadata.
+Returns queued, approval-required, blocked, and demo-inbox-delivered messages. It exposes no external-send action.
 
 ### `GET /api/projects/{project_id}/audit`
 
-Response `200`:
-
-```json
-{
-  "project_id": "f90c4421-761a-47a6-b5d8-1c55b8982149",
-  "events": []
-}
-```
-
-Events use the shared `AuditEvent` shape and are ordered oldest first. The MVP exposes no audit update or delete endpoint.
+Returns oldest-first append-only `AuditEvent` objects. There is no audit update or delete endpoint.
 
 ### `GET /api/health`
 
-Response `200`:
-
 ```json
-{
-  "status": "ok",
-  "service": "freelance-shield-ai"
-}
+{"status": "ok", "service": "freelance-shield-ai"}
 ```
 
-Health output must not reveal versions, environment variables, database paths, credentials, or internal exceptions.
+Health responses reveal no versions, environment variables, paths, credentials, or internal exceptions.
 
-## State-transition errors
+## Mandatory service enforcement
 
-The service layer, not agents or the frontend, enforces at minimum:
-
-- acceptance only from `TERMS_READY` or `ACCEPTANCE_PENDING` for the current code/version;
-- a new scope version resets acceptance to `PENDING`;
-- `OVERDUE` only when an invoice due date exists and is before the current server UTC date;
-- a dispute sets `dispute_flag = true` and prevents `PAYMENT_REMINDER`;
-- each domain write and its audit event commit atomically.
+- Mutual acceptance is version-specific.
+- Contract activation, supersession, milestone creation, and automation enablement are transactional.
+- Progress requires a freelancer-recorded action.
+- Scheduler delivery uses only the latest active version and a unique idempotency key.
+- Approval-required messages cannot reach the demo inbox before explicit approval.
+- Scope-change classification creates a request and pause, not a contract mutation.
+- All writes and rejected attempts create audit events.
