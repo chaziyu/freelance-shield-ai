@@ -123,13 +123,13 @@ A `SCOPE_CHANGE` classification is advisory. Deterministic code:
 
 | Agent | Allowed tools |
 | --- | --- |
-| `CoordinatorAgent` | No persistence tools |
-| `DiscussionAgent` | Project-from-terms, discussion facts, audit |
-| `ContractAgent` | Contract template/version, signature request, audit |
-| `CommunicationAgent` | Active contract/timeline reads, due communication, queue, reply, scope-change request, audit |
-| `SafetyAuditAgent` | Automation policy and audit only |
+| `CoordinatorAgent` | None |
+| `DiscussionAgent` | Project-from-terms, discussion facts |
+| `ContractAgent` | Contract template/version, signature request |
+| `CommunicationAgent` | Active contract/timeline reads, due communication, queue, scope-change request |
+| `SafetyAuditAgent` | Automation policy only |
 
-The deterministic scheduler alone calls demo-inbox delivery. Agents do not import repositories or open SQLite connections. The MCP server is internal STDIO only.
+The deterministic scheduler alone calls demo-inbox delivery. Agents do not import repositories or open SQLite connections. The MCP server runs over internal STDIO only. No external communication occurs in Milestone 3.
 
 ### Validation and safe errors
 

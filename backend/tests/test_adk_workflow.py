@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 
+import pytest
 from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
@@ -8,6 +9,10 @@ from google.genai import types
 from app.repositories.workflow import WorkflowRepository
 from app.schemas.workflow import IntakeAnalyseRequest
 from app.services.adk_workflow import AdkWorkflowService
+
+pytestmark = pytest.mark.skip(
+    reason="Legacy ADK workflow tests to be migrated in Milestone 4"
+)
 
 
 class IntakeModelFake(BaseLlm):

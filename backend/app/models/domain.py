@@ -212,8 +212,16 @@ class Milestone(SQLModel, table=True):
     status: str = Field(default=MilestoneStatus.PLANNED)
     completion_recorded_at: datetime | None = Field(default=None, nullable=True)
     recorded_by: str | None = Field(default=None, nullable=True)
+    source_plan_item_key: str | None = Field(default=None, nullable=True)
 
     __table_args__ = (
+        Index(
+            "uq_agreement_milestone_key",
+            "agreement_version_id",
+            "source_plan_item_key",
+            unique=True,
+            sqlite_where=text("source_plan_item_key IS NOT NULL"),
+        ),
         CheckConstraint(
             "status IN ('PLANNED', 'IN_PROGRESS', "
             "'READY_FOR_REVIEW', 'COMPLETED', 'BLOCKED')",
@@ -224,6 +232,18 @@ class Milestone(SQLModel, table=True):
             name="ck_milestone_recorded_by",
         ),
     )
+
+
+class DiscussionFactSnapshot(SQLModel, table=True):
+    __tablename__ = "discussion_fact_snapshots"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    project_id: UUID = Field(foreign_key="projects.id")
+    extracted_facts_json: str
+    missing_fields_json: str
+    risk_flags_json: str
+    source_text_hash: str
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class ClientMessage(SQLModel, table=True):

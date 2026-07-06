@@ -11,6 +11,7 @@ from app.models.domain import (  # noqa: F401
     ClientMessage,
     ClientReply,
     CommunicationDraft,
+    DiscussionFactSnapshot,
     EvidenceEvent,
     Milestone,
     Project,

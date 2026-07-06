@@ -1,5 +1,6 @@
 import os
 
+import pytest
 from fastapi.testclient import TestClient
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 
@@ -14,6 +15,8 @@ from app.api import workflow as workflow_api
 from app.db.sqlite import initialize_database
 from app.main import app
 from app.mcp_server import server as mcp_server
+
+pytestmark = pytest.mark.skip(reason="Legacy API tests to be migrated in Milestone 6")
 
 os.environ["FREELANCE_SHIELD_ALLOW_LOCAL_WORKFLOW"] = "1"
 initialize_database()

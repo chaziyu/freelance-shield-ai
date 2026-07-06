@@ -61,10 +61,10 @@ The public browser UI and REST API are the only user-facing runtime surfaces. Th
 | Agent | Allowed MCP tools |
 | --- | --- |
 | `CoordinatorAgent` | None |
-| `DiscussionAgent` | `create_project_from_terms`, `save_discussion_facts`, `append_audit_log` |
-| `ContractAgent` | `get_contract_template`, `create_contract_version`, `create_signature_request`, `append_audit_log` |
-| `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications`, `queue_routine_update`, `record_client_reply`, `create_scope_change_request`, `append_audit_log` |
-| `SafetyAuditAgent` | `evaluate_automation_policy`, `append_audit_log` |
+| `DiscussionAgent` | `create_project_from_terms`, `save_discussion_facts` |
+| `ContractAgent` | `get_contract_template`, `create_contract_version`, `create_signature_request` |
+| `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications`, `queue_routine_update`, `create_scope_change_request` |
+| `SafetyAuditAgent` | `evaluate_automation_policy` |
 
 Trusted backend orchestration invokes signature acceptance, milestone progress, scheduler execution, automation pause, milestone creation, and demo-inbox delivery. These operations are not exposed broadly to agents.
 

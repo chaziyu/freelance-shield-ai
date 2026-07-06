@@ -61,18 +61,29 @@ The scheduler, not an AI agent, authorizes and performs delivery to the internal
 
 ## MCP tool surface
 
-The target internal server is `freelance-project-mcp`.
+The restricted internal server is `freelance-project-mcp` running over a STDIO boundary.
+
+The server registers exactly 12 tools:
 
 | Area | Tools |
 | --- | --- |
 | Discussion | `create_project_from_terms`, `save_discussion_facts` |
-| Contract | `get_contract_template`, `create_contract_version`, `create_signature_request`, `record_signature_acceptance`, `get_latest_active_contract` |
-| Milestones | `create_milestones_from_contract`, `record_milestone_progress` |
-| Communication | `get_due_communications`, `queue_routine_update`, `deliver_to_demo_inbox`, `record_client_reply` |
-| Scope change | `create_scope_change_request`, `pause_project_automation`, `evaluate_automation_policy` |
-| Traceability | `get_project_timeline`, `append_audit_log` |
+| Contract | `get_contract_template`, `create_contract_version`, `create_signature_request`, `get_latest_active_contract` |
+| Milestones | `create_milestones_from_contract` |
+| Communication | `get_due_communications`, `queue_routine_update` |
+| Scope change | `create_scope_change_request`, `evaluate_automation_policy` |
+| Traceability | `get_project_timeline` |
 
-No MCP tool may contact WhatsApp, email, Telegram, Instagram, control a browser, sign for a person, collect payment, file a legal claim, or delete audit history.
+### Backend-only actions (Not MCP Tools)
+These trusted human actions must be absent from MCP and ADK tool groups, handled solely by the backend:
+- `record_signature_acceptance`
+- `record_milestone_progress`
+- `pause_project_automation`
+- `record_client_reply`
+- `append_audit_log`
+
+### Forbidden tool policy
+No MCP tool may contact WhatsApp, email, Telegram, Instagram, control a browser, sign on behalf of either party, collect payment, file a legal claim, submit a complaint, or delete/update audit logs. No raw chat data is persisted or returned in outputs/logs/errors. Errors are safe and expose no database paths, SQL, or secrets. No external messaging occurs in Milestone 3.
 
 ## Safety model
 

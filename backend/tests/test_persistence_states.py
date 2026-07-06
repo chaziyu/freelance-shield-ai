@@ -74,11 +74,13 @@ def setup_draft_agreement(session: Session, service: DomainService):
     plan_json = json.dumps(
         [
             {
+                "source_plan_item_key": "first_draft",
                 "title": "First draft",
                 "description": "Draft details",
                 "due_at": "2026-07-10T12:00:00",
             },
             {
+                "source_plan_item_key": "final_files",
                 "title": "Final files",
                 "description": "Final assets",
                 "due_at": "2026-07-15T12:00:00",
@@ -195,9 +197,21 @@ def test_v2_does_not_supersede_v1_before_both_v2_signatures(
     # Create V2 draft
     plan_json2 = json.dumps(
         [
-            {"title": "First draft", "due_at": "2026-07-10T12:00:00"},
-            {"title": "Final files", "due_at": "2026-07-15T12:00:00"},
-            {"title": "Instagram story version", "due_at": "2026-07-18T12:00:00"},
+            {
+                "source_plan_item_key": "first_draft",
+                "title": "First draft",
+                "due_at": "2026-07-10T12:00:00",
+            },
+            {
+                "source_plan_item_key": "final_files",
+                "title": "Final files",
+                "due_at": "2026-07-15T12:00:00",
+            },
+            {
+                "source_plan_item_key": "instagram_story",
+                "title": "Instagram story version",
+                "due_at": "2026-07-18T12:00:00",
+            },
         ]
     )
     agreement_v2 = service.create_agreement_draft(
@@ -287,7 +301,15 @@ def test_automation_requires_latest_active_contract(
     assert msg_v1.status == MessageStatus.DELIVERED_TO_DEMO_INBOX
 
     # Activate V2
-    plan_json2 = json.dumps([{"title": "First draft", "due_at": "2026-07-10T12:00:00"}])
+    plan_json2 = json.dumps(
+        [
+            {
+                "source_plan_item_key": "first_draft",
+                "title": "First draft",
+                "due_at": "2026-07-10T12:00:00",
+            }
+        ]
+    )
     agreement_v2 = service.create_agreement_draft(
         session,
         project_id=project.id,
@@ -437,7 +459,15 @@ def test_one_active_agreement_enforcement(session: Session, service: DomainServi
     )
 
     # Setup V2 draft and signatures
-    plan_json2 = json.dumps([{"title": "First draft", "due_at": "2026-07-10T12:00:00"}])
+    plan_json2 = json.dumps(
+        [
+            {
+                "source_plan_item_key": "first_draft",
+                "title": "First draft",
+                "due_at": "2026-07-10T12:00:00",
+            }
+        ]
+    )
     agreement_v2 = service.create_agreement_draft(
         session,
         project_id=project.id,
@@ -484,7 +514,15 @@ def test_v1_message_cancellation_after_v2_activation(
     )
 
     # Setup and activate V2
-    plan_json2 = json.dumps([{"title": "First draft", "due_at": "2026-07-10T12:00:00"}])
+    plan_json2 = json.dumps(
+        [
+            {
+                "source_plan_item_key": "first_draft",
+                "title": "First draft",
+                "due_at": "2026-07-10T12:00:00",
+            }
+        ]
+    )
     agreement_v2 = service.create_agreement_draft(
         session,
         project_id=project.id,
@@ -535,7 +573,15 @@ def test_delivered_message_history_preservation(
     service.deliver_message_to_demo_inbox(session, msg_v1.id)
 
     # Setup and activate V2
-    plan_json2 = json.dumps([{"title": "First draft", "due_at": "2026-07-10T12:00:00"}])
+    plan_json2 = json.dumps(
+        [
+            {
+                "source_plan_item_key": "first_draft",
+                "title": "First draft",
+                "due_at": "2026-07-10T12:00:00",
+            }
+        ]
+    )
     agreement_v2 = service.create_agreement_draft(
         session,
         project_id=project.id,
@@ -627,7 +673,15 @@ def test_contract_completeness_before_signature(
         service.transition_to_pending_signature(session, agreement.id)
 
     # Set valid plan - now it succeeds
-    plan_json = json.dumps([{"title": "First draft", "due_at": "2026-07-10T12:00:00"}])
+    plan_json = json.dumps(
+        [
+            {
+                "source_plan_item_key": "first_draft",
+                "title": "First draft",
+                "due_at": "2026-07-10T12:00:00",
+            }
+        ]
+    )
     agreement.milestone_plan_json = plan_json
     session.add(agreement)
     session.commit()

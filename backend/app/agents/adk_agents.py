@@ -22,22 +22,22 @@ from app.schemas.workflow import (
 DEFAULT_MODEL = "gemini-2.5-flash"
 
 INTAKE_TOOLS = [
-    "create_project",
-    "save_extracted_facts",
-    "append_audit_log",
+    "create_project_from_terms",
+    "save_discussion_facts",
 ]
 AGREEMENT_TOOLS = [
     "get_contract_template",
-    "create_agreement_version",
-    "append_audit_log",
+    "create_contract_version",
+    "create_signature_request",
 ]
 FOLLOW_UP_TOOLS = [
+    "get_latest_active_contract",
+    "get_due_communications",
+    "queue_routine_update",
+    "create_scope_change_request",
     "get_project_timeline",
-    "evaluate_follow_up_policy",
-    "create_draft_record",
-    "append_audit_log",
 ]
-SAFETY_AUDIT_TOOLS = ["append_audit_log"]
+SAFETY_AUDIT_TOOLS = ["evaluate_automation_policy"]
 
 
 @dataclass(frozen=True)
