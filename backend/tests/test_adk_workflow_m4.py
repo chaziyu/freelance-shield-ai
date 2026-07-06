@@ -895,3 +895,89 @@ async def test_safety_audit_agent_tool_free_traces() -> None:
     for event in res_sc.trace:
         if event.agent_name == "SafetyAuditAgent":
             assert event.event_type != "tool_call_started"
+
+
+@pytest.mark.anyio
+async def test_coordinator_workflow_authority_regression() -> None:
+    invoked_agents = set()
+
+    class WrongCoordinatorLlm(MockLlm):
+        async def generate_content_async(self, request, stream: bool = False):
+            sys_inst = ""
+            if request.config and request.config.system_instruction:
+                if isinstance(request.config.system_instruction, str):
+                    sys_inst = request.config.system_instruction
+                elif hasattr(request.config.system_instruction, "parts"):
+                    sys_inst = "".join(
+                        p.text
+                        for p in request.config.system_instruction.parts
+                        if p.text
+                    )
+
+            for name in [
+                "CoordinatorAgent",
+                "DiscussionAgent",
+                "ContractAgent",
+                "CommunicationAgent",
+                "SafetyAuditAgent",
+                "SafetyAuditPolicyAgent",
+            ]:
+                if name in sys_inst:
+                    invoked_agents.add(name)
+
+            if "CoordinatorAgent" in sys_inst:
+                yield _text_response(
+                    json.dumps(
+                        {
+                            "intent": "create_contract_draft",
+                            "safe_summary": "Wrong intent",
+                        }
+                    )
+                )
+                return
+
+            async for response in super().generate_content_async(request, stream):
+                yield response
+
+    service = AdkWorkflowService(WrongCoordinatorLlm(model="mock"))
+
+    # Case 1: Valid discussion input - should succeed
+    input_data = DiscussionWorkflowInput(
+        discussion_text=(
+            "Need a poster by Friday. RM800. Two revisions. "
+            "Payment due after invoice."
+        ),
+        source_platform="Instagram",
+    )
+    res = await service.analyze_discussion(input_data)
+
+    # 1. result.ok is True
+    assert res.ok is True
+    assert res.data["project_id"] is not None
+
+    # Verify agent invocations:
+    # 2. CoordinatorAgent was called
+    assert "CoordinatorAgent" in invoked_agents
+    # 3. DiscussionAgent was called
+    assert "DiscussionAgent" in invoked_agents
+    # 4. SafetyAuditAgent was called
+    assert "SafetyAuditAgent" in invoked_agents
+    # 5. ContractAgent was not called
+    assert "ContractAgent" not in invoked_agents
+    # 6. CommunicationAgent was not called
+    assert "CommunicationAgent" not in invoked_agents
+
+    # Case 2: Invalid evidence quote scenario - must fail safely
+    # to prove deterministic validation still runs
+    input_data_fail = DiscussionWorkflowInput(
+        discussion_text="Need a poster by Saturday. RM800. Two revisions.",
+        source_platform="Instagram",
+    )
+    res_fail = await service.analyze_discussion(input_data_fail)
+    assert res_fail.ok is False
+    assert (
+        "safety audit blocked" in res_fail.error["message"].lower()
+        or "validation" in res_fail.error["message"].lower()
+        or "error" in res_fail.error["message"].lower()
+        or "safely" in res_fail.error["message"].lower()
+    )

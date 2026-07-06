@@ -614,17 +614,15 @@ class AdkWorkflowService:
             bundle = build_agent_bundle(self.model)
 
             # 1. CoordinatorAgent extracts typed intent + trace
-            coordinator_out = await self._run_agent(
+            _coordinator_out = await self._run_agent(
                 bundle.coordinator,
                 {
-                    "discussion_text": request.discussion_text,
-                    "source_platform": request.source_platform,
+                    "expected_intent": "analyze_discussion",
+                    "operation": "workflow_trace",
                 },
                 run_id,
                 steps_list,
             )
-            if coordinator_out.get("intent") != "analyze_discussion":
-                raise ValueError("Coordinator routed to wrong intent")
 
             # 2. DiscussionAgent extracts facts
             facts_dict = await self._run_agent(
