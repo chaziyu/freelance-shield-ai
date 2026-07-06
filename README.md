@@ -39,9 +39,10 @@ flowchart TD
     C --> K["ContractAgent"]
     C --> M["CommunicationAgent"]
     C --> S["SafetyAuditAgent"]
+    C --> SP["SafetyAuditPolicyAgent"]
     K -.->|"read-only"| MCP["freelance-project-mcp over STDIO"]
     M -.->|"read-only"| MCP
-    S -.->|"read-only"| MCP
+    SP -.->|"read-only"| MCP
     WF -->|"SafetyValidationReceipt"| Adapter["Trusted persistence adapter"]
     Adapter --> MCP
     MCP --> Services["Contract, signature, milestone, queue, reply, scope-change, scheduler, audit services"]
@@ -59,7 +60,8 @@ The scheduler, not an AI agent, authorizes and performs delivery to the internal
 | `DiscussionAgent` | Extract only stated terms, ambiguity, and missing fields from untrusted discussion data. | None |
 | `ContractAgent` | Create immutable FS contract versions from reviewed facts and approved templates. | `get_contract_template` (read-only) |
 | `CommunicationAgent` | Draft contract-backed routine updates and classify client replies. | `get_latest_active_contract`, `get_due_communications` (read-only) |
-| `SafetyAuditAgent` | Check version, progress evidence, send mode, scope-change state, and wording. | `evaluate_automation_policy` (read-only) |
+| `SafetyAuditAgent` | Audit discussion facts, draft contracts, and scope change summaries; tool-free. | None |
+| `SafetyAuditPolicyAgent` | Assess routine-update automation policy and explain deterministic outcomes. | `evaluate_automation_policy` (read-only) |
 
 No agent has mutating MCP tools. All mutations go through a trusted persistence adapter gated by a `SafetyValidationReceipt` (HMAC-SHA-256 signed, 5-min TTL).
 

@@ -1,8 +1,10 @@
+import contextvars
 import hashlib
 import hmac
 import json
 import os
 import re
+import sys
 import time
 from datetime import UTC, date, datetime
 from typing import Any, TypeVar
@@ -43,6 +45,77 @@ from app.schemas.agent_workflow import (
 from app.services.errors import ConfigurationError
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
+
+active_raw_texts: contextvars.ContextVar[list[str]] = contextvars.ContextVar(
+    "active_raw_texts", default=[]
+)
+
+
+def sanitize_workflow_error(message: str) -> str:
+    if not message:
+        return ""
+
+    # 1. Windows paths: drive letters (e.g. C:\...) or double backslashes
+    message = re.sub(r"[a-zA-Z]:\\[\w\\\-\.\(\)]+", "[PATH]", message)
+    message = re.sub(r"[a-zA-Z]:/[\/\w\-\.\(\)]+", "[PATH]", message)
+    message = re.sub(r"\\\\", "[PATH]", message)
+
+    unix_regex = (
+        r"(?<!/)/(?:bin|usr|var|etc|opt|tmp|home|root|app|lib|lib64|sys|proc|"
+        r"dev|mnt|run|srv|boot)/[\w/\-\.]+"
+    )
+    message = re.sub(unix_regex, "[PATH]", message)
+
+    # 3. Environment variables & API keys
+    for k, v in os.environ.items():
+        if any(sec in k.upper() for sec in ["KEY", "SECRET", "PASSWORD", "TOKEN"]):
+            if v and len(v) > 3 and v in message:
+                message = message.replace(v, "[SECRET]")
+
+    # 4. SQL/database signatures
+    lower_msg = message.lower()
+    db_indicators = [
+        "sqlite",
+        "select",
+        "insert",
+        "delete",
+        "database",
+        "query",
+        "integrityerror",
+        "operationalerror",
+    ]
+    if any(ind in lower_msg for ind in db_indicators):
+        return "A database constraint or error occurred."
+
+    # 5. Stack-trace fragments
+    message = re.sub(r'File "[^"]+", line \d+, in \w+', "[STACK_FRAME]", message)
+
+    # 6. Raw discussion and client reply texts
+    try:
+        raw_texts = active_raw_texts.get()
+        for raw_text in raw_texts:
+            if raw_text and len(raw_text) > 3 and raw_text in message:
+                message = message.replace(raw_text, "[RAW_TEXT]")
+    except LookupError:
+        pass
+
+    return message
+
+
+def handle_workflow_exception(
+    exc: Exception, steps_list: list[AgentTraceEvent]
+) -> WorkflowResult:
+    sanitized = sanitize_workflow_error(str(exc))
+    print(sanitized, file=sys.stderr)
+    return WorkflowResult(
+        ok=False,
+        error={
+            "code": "WORKFLOW_ERROR",
+            "message": "The workflow could not be completed safely.",
+        },
+        trace=steps_list,
+    )
+
 
 
 # --- Cryptographic Helpers for Attestation & Safety Receipt ---
@@ -331,8 +404,47 @@ def validate_routine_update_deterministic(
     return failed_codes
 
 
-def validate_scope_change_deterministic(client_reply_id: UUID) -> list[str]:
-    return []
+def validate_scope_change_deterministic(
+    client_reply_id: UUID,
+    summary: str
+) -> list[str]:
+    failed_codes = []
+    # 1. client_reply_id has valid UUID type
+    if not isinstance(client_reply_id, UUID):
+        try:
+            UUID(str(client_reply_id))
+        except Exception:
+            failed_codes.append("INVALID_CLIENT_REPLY_ID")
+
+    # 2. summary is non-empty
+    if not summary or not summary.strip():
+        failed_codes.append("EMPTY_SUMMARY")
+
+    # 3. summary is at most 1000 characters
+    elif len(summary) > 1000:
+        failed_codes.append("SUMMARY_TOO_LONG")
+
+    # 4. summary does not contain injection-like instructions
+    injection_keywords = [
+        "ignore all instructions",
+        "ignore all rules",
+        "send a legal threat",
+        "mark the project complete",
+        "accept the contract",
+    ]
+    lower_summary = summary.lower()
+    for keyword in injection_keywords:
+        if keyword in lower_summary:
+            failed_codes.append("PROHIBITED_INJECTION_SUMMARY")
+            break
+
+    # 5. summary does not contain prohibited unsafe wording
+    unsafe_words = ["court", "lawsuit", "legal action", "guaranteed recovery"]
+    for word in unsafe_words:
+        if word in lower_summary:
+            failed_codes.append(f"UNSAFE_WORD_{word.upper().replace(' ', '_')}")
+
+    return failed_codes
 
 
 # --- Orchestration Service ---
@@ -469,16 +581,15 @@ class AdkWorkflowService:
     async def create_validated_scope_change_request(
         self, client_reply_id: UUID, summary: str, receipt: SafetyValidationReceipt
     ) -> dict[str, Any]:
-        # 1. Recompute candidate hash
-        candidate_data = {
-            "client_reply_id": str(client_reply_id),
+        # 1. Recompute candidate hash (only safe summary payload)
+        candidate_payload = {
             "summary": summary,
         }
-        candidate_json = json.dumps(candidate_data, sort_keys=True)
+        candidate_json = json.dumps(candidate_payload, sort_keys=True)
         candidate_hash = hashlib.sha256(candidate_json.encode("utf-8")).hexdigest()
 
         # 2. Verify receipt
-        if not verify_safety_receipt(receipt, "scope_change", candidate_hash):
+        if not verify_safety_receipt(receipt, "scope_change_summary", candidate_hash):
             raise ConfigurationError("SafetyValidationReceipt verification failed.")
 
         # 3. Call MCP create_scope_change_request
@@ -499,6 +610,7 @@ class AdkWorkflowService:
         run_id = str(uuid4())
         steps_list = []
         try:
+            active_raw_texts.set([request.discussion_text])
             bundle = build_agent_bundle(self.model)
 
             # 1. CoordinatorAgent extracts typed intent + trace
@@ -585,11 +697,7 @@ class AdkWorkflowService:
                 trace=steps_list,
             )
         except Exception as exc:
-            return WorkflowResult(
-                ok=False,
-                error={"code": "WORKFLOW_ERROR", "message": str(exc)},
-                trace=steps_list,
-            )
+            return handle_workflow_exception(exc, steps_list)
 
     async def create_contract_draft(
         self, input_data: ContractDraftWorkflowInput
@@ -597,6 +705,10 @@ class AdkWorkflowService:
         run_id = str(uuid4())
         steps_list = []
         try:
+            active_raw_texts.set(
+                [input_data.reviewed_terms.scope]
+                + (input_data.reviewed_terms.deliverables or [])
+            )
             bundle = build_agent_bundle(self.model)
 
             # 1. CoordinatorAgent extracts intent
@@ -679,11 +791,7 @@ class AdkWorkflowService:
                 ok=True, data={"agreement": res["agreement"]}, trace=steps_list
             )
         except Exception as exc:
-            return WorkflowResult(
-                ok=False,
-                error={"code": "WORKFLOW_ERROR", "message": str(exc)},
-                trace=steps_list,
-            )
+            return handle_workflow_exception(exc, steps_list)
 
     async def prepare_due_updates(
         self, input_data: DueUpdateWorkflowInput
@@ -691,9 +799,10 @@ class AdkWorkflowService:
         run_id = str(uuid4())
         steps_list = []
         try:
+            active_raw_texts.set([])
             bundle = build_agent_bundle(self.model)
 
-            # 1. CoordinatorAgent extracts intent
+            # 1. CoordinatorAgent returns typed intent and safe trace.
             _coordinator_out = await self._run_agent(
                 bundle.coordinator,
                 {
@@ -704,22 +813,109 @@ class AdkWorkflowService:
                 steps_list,
             )
 
-            # 2. CommunicationAgent reads active contract and due candidates
-            candidates_dict = await self._run_agent(
-                bundle.communication, input_data, run_id, steps_list
+            # 2. Workflow service directly calls MCP get_due_communications(project_id).
+            due_res = await self._call_mcp(
+                "get_due_communications",
+                {"project_id": str(input_data.project_id)}
             )
 
-            candidates_list = []
+            # 3. MCP output becomes the sole authoritative due-candidate list.
+            due_candidates = []
+            if isinstance(due_res, dict):
+                if "candidates" in due_res:
+                    due_candidates = due_res["candidates"]
+                elif "result" in due_res and "candidates" in due_res["result"]:
+                    due_candidates = due_res["result"]["candidates"]
+            elif isinstance(due_res, list):
+                due_candidates = due_res
+
+            authoritative_candidates = []
+            for cand_data in due_candidates:
+                authoritative_candidates.append(
+                    RoutineUpdateCandidate.model_validate(cand_data)
+                )
+
+            # 4. CommunicationAgent may select only from authoritative list.
+            agent_input = {
+                "project_id": str(input_data.project_id),
+                "authoritative_candidates": [
+                    c.model_dump(mode="json")
+                    for c in authoritative_candidates
+                ],
+            }
+            candidates_dict = await self._run_agent(
+                bundle.communication, agent_input, run_id, steps_list
+            )
+
+            selected_list = []
             if isinstance(candidates_dict, dict) and "candidates" in candidates_dict:
-                candidates_list = candidates_dict["candidates"]
+                selected_list = candidates_dict["candidates"]
             elif isinstance(candidates_dict, list):
-                candidates_list = candidates_dict
+                selected_list = candidates_dict
+
+            # 5. Backend validates selected candidates against MCP list.
+            valid_selected_candidates = []
+            seen_keys = set()
+            for sel_data in selected_list:
+                try:
+                    sel_cand = RoutineUpdateCandidate.model_validate(sel_data)
+                except Exception:
+                    continue
+
+                if str(sel_cand.project_id) != str(input_data.project_id):
+                    continue
+
+                # Match against authoritative MCP list
+                matched_auth = None
+                for auth_cand in authoritative_candidates:
+                    if str(auth_cand.project_id) != str(sel_cand.project_id):
+                        continue
+                    auth_ver = str(auth_cand.agreement_version_id)
+                    sel_ver = str(sel_cand.agreement_version_id)
+                    if auth_ver != sel_ver:
+                        continue
+                    if auth_cand.message_type != sel_cand.message_type:
+                        continue
+                    auth_m_id = (
+                        str(auth_cand.milestone_id)
+                        if auth_cand.milestone_id
+                        else None
+                    )
+                    sel_m_id = (
+                        str(sel_cand.milestone_id)
+                        if sel_cand.milestone_id
+                        else None
+                    )
+                    if auth_m_id != sel_m_id:
+                        continue
+
+                    matched_auth = auth_cand
+                    break
+
+                if not matched_auth:
+                    continue
+
+                # Deduplicate
+                m_id_str = (
+                    str(matched_auth.milestone_id)
+                    if matched_auth.milestone_id
+                    else "none"
+                )
+                unique_key = (
+                    str(matched_auth.project_id),
+                    str(matched_auth.agreement_version_id),
+                    m_id_str,
+                    matched_auth.message_type,
+                )
+                if unique_key in seen_keys:
+                    continue
+                seen_keys.add(unique_key)
+
+                valid_selected_candidates.append(matched_auth)
 
             queued_messages = []
-            for cand_data in candidates_list:
-                cand = RoutineUpdateCandidate.model_validate(cand_data)
-
-                # Check policy
+            for cand in valid_selected_candidates:
+                # 6. Directly call evaluate_automation_policy.
                 policy_res = await self._call_mcp(
                     "evaluate_automation_policy",
                     {
@@ -732,9 +928,9 @@ class AdkWorkflowService:
                     },
                 )
 
-                # SafetyAuditAgent evaluates policy
+                # 7. SafetyAuditPolicyAgent reviews the deterministic policy result.
                 safety_out = await self._run_agent(
-                    bundle.safety_audit,
+                    bundle.safety_audit_policy,
                     {
                         "operation": "audit_routine_update",
                         "candidate": cand.model_dump(mode="json"),
@@ -747,15 +943,21 @@ class AdkWorkflowService:
                 if safety_decision.blocked:
                     continue
 
-                # Deterministic checks
+                # 8. Backend performs deterministic routine-update checks.
                 failed_codes = validate_routine_update_deterministic(
                     cand.message_type, policy_res
                 )
                 if len(failed_codes) > 0:
                     continue
 
-                m_id_str = str(cand.milestone_id) if cand.milestone_id else "none"
-                idempotency_key = f"{cand.project_id}:{cand.agreement_version_id}:{m_id_str}:{cand.message_type}"  # noqa: E501
+                # 9. Workflow issues a receipt.
+                m_id_str = (
+                    str(cand.milestone_id) if cand.milestone_id else "none"
+                )
+                idempotency_key = (
+                    f"{cand.project_id}:{cand.agreement_version_id}:"
+                    f"{m_id_str}:{cand.message_type}"
+                )
 
                 candidate_payload = {
                     "project_id": str(cand.project_id),
@@ -775,6 +977,7 @@ class AdkWorkflowService:
                     "routine_update", candidate_hash, True, []
                 )
 
+                # 10. Trusted adapter queues using only authoritative candidate values.
                 msg_res = await self.queue_validated_routine_update(
                     project_id=cand.project_id,
                     agreement_version_id=cand.agreement_version_id,
@@ -789,11 +992,7 @@ class AdkWorkflowService:
                 ok=True, data={"queued_messages": queued_messages}, trace=steps_list
             )
         except Exception as exc:
-            return WorkflowResult(
-                ok=False,
-                error={"code": "WORKFLOW_ERROR", "message": str(exc)},
-                trace=steps_list,
-            )
+            return handle_workflow_exception(exc, steps_list)
 
     async def classify_client_reply(
         self, request: ClientReplyClassificationInput
@@ -801,6 +1000,7 @@ class AdkWorkflowService:
         run_id = str(uuid4())
         steps_list = []
         try:
+            active_raw_texts.set([request.reply_text])
             bundle = build_agent_bundle(self.model)
 
             # 1. CoordinatorAgent extracts intent
@@ -839,11 +1039,7 @@ class AdkWorkflowService:
 
             return WorkflowResult(ok=True, data=classification_dict, trace=steps_list)
         except Exception as exc:
-            return WorkflowResult(
-                ok=False,
-                error={"code": "WORKFLOW_ERROR", "message": str(exc)},
-                trace=steps_list,
-            )
+            return handle_workflow_exception(exc, steps_list)
 
     async def process_persisted_scope_change(
         self, request: ScopeChangeWorkflowInput
@@ -851,6 +1047,7 @@ class AdkWorkflowService:
         run_id = str(uuid4())
         steps_list = []
         try:
+            active_raw_texts.set([request.summary])
             bundle = build_agent_bundle(self.model)
 
             # 1. CoordinatorAgent extracts intent
@@ -887,18 +1084,19 @@ class AdkWorkflowService:
                 )
 
             # 3. Deterministic checks
-            failed_codes = validate_scope_change_deterministic(request.client_reply_id)
+            failed_codes = validate_scope_change_deterministic(
+                request.client_reply_id, request.summary
+            )
             checks_passed = len(failed_codes) == 0
 
             # 4. Issue SafetyValidationReceipt
             candidate_payload = {
-                "client_reply_id": str(request.client_reply_id),
                 "summary": request.summary,
             }
             candidate_json = json.dumps(candidate_payload, sort_keys=True)
             candidate_hash = hashlib.sha256(candidate_json.encode("utf-8")).hexdigest()
             receipt = generate_safety_receipt(
-                "scope_change", candidate_hash, checks_passed, failed_codes
+                "scope_change_summary", candidate_hash, checks_passed, failed_codes
             )
 
             # 5. Call trusted persistence adapter
@@ -914,11 +1112,7 @@ class AdkWorkflowService:
                 trace=steps_list,
             )
         except Exception as exc:
-            return WorkflowResult(
-                ok=False,
-                error={"code": "WORKFLOW_ERROR", "message": str(exc)},
-                trace=steps_list,
-            )
+            return handle_workflow_exception(exc, steps_list)
 
     # --- Legacy Compatibility & Helpers ---
 

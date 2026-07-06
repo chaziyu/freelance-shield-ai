@@ -12,7 +12,8 @@ Milestone 4 implemented. This document defines the runtime agent permissions, or
 | `DiscussionAgent` | chat | None | None | Extracts structured facts from untrusted discussion text |
 | `ContractAgent` | chat | `get_contract_template` | None | Creates transient DRAFT contract proposals from reviewed terms |
 | `CommunicationAgent` | chat | `get_latest_active_contract`, `get_due_communications` | None | Reads contract context and due updates; classifies replies (tool-free variant) |
-| `SafetyAuditAgent` | chat | `evaluate_automation_policy` | None | Evaluates safety of proposals; tool-free for discussion/contract audits |
+| `SafetyAuditAgent` | chat | None | None | Evaluates safety of proposals, contracts, and summaries; tool-free |
+| `SafetyAuditPolicyAgent` | chat | `evaluate_automation_policy` | None | Evaluates routine-update automation policy safety |
 
 No agent has mutating MCP tools. All mutations pass through named trusted persistence adapters with `SafetyValidationReceipt` verification.
 
@@ -25,7 +26,7 @@ No agent has mutating MCP tools. All mutations pass through named trusted persis
 3. **Stage validation.** The service validates that the requested stage sequence matches the chosen workflow method. Mismatched intents are rejected.
 4. **Specialist execution.** The service runs the correct specialist agent (`DiscussionAgent`, `ContractAgent`, or `CommunicationAgent`) with its narrow `McpToolset`. The agent returns structured output only; it cannot persist results.
 5. **Schema validation.** Agent output is validated against a typed Pydantic model (`ExtractedDiscussionFacts`, `ContractDraftProposal`, `RoutineUpdateCandidate`, or classification result). Invalid output fails the workflow.
-6. **Safety audit.** `SafetyAuditAgent` evaluates the validated output. For routine updates it calls `evaluate_automation_policy`; for discussion and contract audits it runs tool-free. A `blocked` decision halts the workflow.
+6. **Safety audit.** `SafetyAuditAgent` (for discussion, contract, or scope-change summary) or `SafetyAuditPolicyAgent` (for routine update policy) evaluates the validated output or deterministic policy result. A `blocked` decision halts the workflow.
 7. **Deterministic checks.** Server-side checks verify evidence-quote presence, forbidden-term absence, attestation validity, policy approval, and SOW completeness. These checks are not model-dependent.
 8. **Receipt issuance.** A `SafetyValidationReceipt` is generated with an HMAC-SHA-256 signature covering the candidate type, candidate hash, check results, and expiry. Only receipts where `deterministic_checks_passed` is true and the safety decision is not blocked proceed.
 9. **Trusted adapter call.** A named trusted persistence adapter method calls the appropriate mutating MCP tool(s), after re-verifying the receipt signature, candidate hash match, expiry, and check status.
@@ -36,23 +37,23 @@ Five workflow methods are implemented:
 
 ### `analyze_discussion`
 
-Discussion extraction with evidence-quote verification. `DiscussionAgent` extracts `EvidenceBackedField` values from untrusted text. Deterministic checks verify that each `evidence_quote` is a substring of the original discussion and that raw text does not leak into the structured output.
+Discussion extraction with evidence-quote verification. `DiscussionAgent` extracts `EvidenceBackedField` values from untrusted text. Deterministic checks verify that each `evidence_quote` is a substring of the original discussion and that raw text does not leak into the structured output. Unexpected workflow errors are sanitized and return a fixed public-safe error.
 
 ### `create_contract_draft`
 
-Contract creation with `ReviewedTermsAttestation` verification. The service verifies an HMAC-signed attestation proving the freelancer reviewed and approved the extracted terms before `ContractAgent` produces a transient `ContractDraftProposal`. Deterministic checks reject forbidden terms (legal enforceability, external platforms) and missing SOW fields.
+Contract creation with `ReviewedTermsAttestation` verification. The service verifies an HMAC-signed attestation proving the freelancer reviewed and approved the extracted terms before `ContractAgent` produces a transient `ContractDraftProposal`. Deterministic checks reject forbidden terms (legal enforceability, external platforms) and missing SOW fields. Unexpected workflow errors are sanitized and return a fixed public-safe error.
 
 ### `prepare_due_updates`
 
-Communication preparation with automation policy check. `CommunicationAgent` reads the active contract and due communications via read-only MCP tools. For each candidate, the service calls `evaluate_automation_policy` (via `SafetyAuditAgent`), runs deterministic action validation, and queues approved routine updates through the trusted adapter.
+Communication preparation with automation policy check. The workflow service directly calls MCP `get_due_communications` to get the authoritative candidate list. `CommunicationAgent` ranks or selects only from this list. Every candidate is validated against the authoritative list, and the service directly calls MCP `evaluate_automation_policy` using authoritative values. `SafetyAuditPolicyAgent` reviews the deterministic policy result, and queueing is performed using only authoritative candidate values. Unexpected workflow errors are sanitized and return a fixed public-safe error.
 
 ### `classify_client_reply`
 
-Tool-free reply classification with no side effects. A tool-free `CommunicationAgent` variant classifies the reply as `ACKNOWLEDGEMENT`, `FEEDBACK`, `QUESTION`, `SCOPE_CHANGE`, or `CONCERN`. No database writes occur. Trace summaries are sanitized to prevent untrusted reply text from appearing in logs.
+Tool-free reply classification with no side effects. A tool-free `CommunicationAgent` variant classifies the reply as `ACKNOWLEDGEMENT`, `FEEDBACK`, `QUESTION`, `SCOPE_CHANGE`, or `CONCERN`. No database writes occur. Trace summaries are sanitized to prevent untrusted reply text from appearing in logs. Unexpected workflow errors are sanitized and return a fixed public-safe error.
 
 ### `process_persisted_scope_change`
 
-Scope change creation from a persisted client reply. `SafetyAuditAgent` evaluates the proposed scope-change handling. On approval, the trusted adapter creates a `ScopeChangeRequest` via MCP, which deterministic services use to pause affected automation.
+Scope change creation from a persisted client reply. Deterministic validation checks the safety of the proposed summary payload (candidate type `scope_change_summary`). `SafetyAuditAgent` evaluates the proposed scope-change handling. On approval, the trusted adapter creates a `ScopeChangeRequest` via MCP, which validates persisted reply existence and disables automation atomically. Nonexistent reply IDs fail safely. Unexpected workflow errors are sanitized and return a fixed public-safe error.
 
 ## Trusted persistence adapter
 
@@ -78,12 +79,12 @@ Calls `create_scope_change_request`. Creates a scope-change request record that 
 
 Every adapter method re-verifies the `SafetyValidationReceipt` before executing. Verification requires:
 
-- **Type match:** `candidate_type` matches the adapter operation (e.g. `discussion_facts`, `contract_draft`, `routine_update`, `scope_change`).
+- **Type match:** `candidate_type` matches the adapter operation (e.g. `discussion_facts`, `contract_draft`, `routine_update`, `scope_change_summary`).
 - **Hash match:** `candidate_hash` matches the SHA-256 hash of the canonical JSON payload recomputed at call time.
 - **Checks passed:** `deterministic_checks_passed` is `True`.
 - **Not expired:** Current time is within the receipt's 5-minute TTL window (`issued_at` ≤ now ≤ `expires_at`).
 - **Valid signature:** HMAC-SHA-256 `receipt_signature` matches the recomputed signature using `SAFETY_RECEIPT_HMAC_KEY`.
-- **Not blocked:** The preceding `SafetyAuditAgent` decision was not `blocked`.
+- **Not blocked:** The preceding safety agent decision was not `blocked`.
 
 A failed verification raises `ConfigurationError` and the MCP mutation is never attempted.
 

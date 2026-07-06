@@ -16,9 +16,10 @@ flowchart TD
     Coordinator --> Contract["ContractAgent"]
     Coordinator --> Communication["CommunicationAgent"]
     Coordinator --> Safety["SafetyAuditAgent"]
+    Coordinator --> SafetyPolicy["SafetyAuditPolicyAgent"]
     Contract -.->|"read-only"| MCP["freelance-project-mcp"]
     Communication -.->|"read-only"| MCP
-    Safety -.->|"read-only"| MCP
+    SafetyPolicy -.->|"read-only"| MCP
     WF -->|"SafetyValidationReceipt"| Adapter["Trusted persistence adapter"]
     Adapter --> MCP
     MCP --> Services["Domain services"]
@@ -40,7 +41,8 @@ The public browser UI and REST API are the only user-facing runtime surfaces. Th
 | DiscussionAgent | Extract stated facts and ambiguity | Invent missing terms |
 | ContractAgent | Draft contract versions from reviewed facts | Activate contracts or sign for a party |
 | CommunicationAgent | Draft routine updates and classify replies | Record progress, accept scope, or deliver messages |
-| SafetyAuditAgent | Review message policy and wording | Broaden deterministic delivery authorization |
+| SafetyAuditAgent | Audit discussion facts, draft contracts, and scope change summaries; tool-free | Has any tools or modify project state |
+| SafetyAuditPolicyAgent | Assess routine-update automation policy and explain deterministic outcomes | Override deterministic policy or queue/deliver messages |
 | MCP server | Expose approved typed internal operations | Expose public HTTP or forbidden external actions |
 | Domain services | Contract, signature, milestone, queue, reply, scope-change, and audit rules | Depend on frontend state or prompt behavior |
 | Scheduler service | Due-time checks, active-version checks, pause, send mode, idempotency, and demo delivery | Use LLM judgment as final delivery authority |
@@ -68,7 +70,8 @@ No ADK agent has mutating MCP tools. All mutations go through the trusted persis
 | `DiscussionAgent` | None | Returns structured extraction; mutations go through adapter |
 | `ContractAgent` | `get_contract_template` | Read-only template retrieval; contract creation goes through adapter |
 | `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications` | Read-only contract and schedule queries; queuing goes through adapter |
-| `SafetyAuditAgent` | `evaluate_automation_policy` | Read-only policy evaluation; audit logging goes through adapter |
+| `SafetyAuditAgent` | None | Tool-free discussion fact audit, contract proposal audit, and scope change summary audit |
+| `SafetyAuditPolicyAgent` | `evaluate_automation_policy` | Read-only policy evaluation; audit logging goes through adapter |
 
 Trusted backend orchestration (the persistence adapter) handles all mutating operations: project creation, discussion-fact persistence, contract version creation, signature requests, queue updates, scope-change requests, milestone creation, signature acceptance, milestone progress, scheduler execution, automation pause, and demo-inbox delivery. These operations are never exposed as agent tools.
 

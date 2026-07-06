@@ -129,7 +129,8 @@ No ADK agent holds a mutating MCP tool. Runtime `McpToolset` assignments are rea
 | `DiscussionAgent` | None |
 | `ContractAgent` | `get_contract_template` |
 | `CommunicationAgent` | `get_latest_active_contract`, `get_due_communications` |
-| `SafetyAuditAgent` | `evaluate_automation_policy` |
+| `SafetyAuditAgent` | None |
+| `SafetyAuditPolicyAgent` | `evaluate_automation_policy` |
 
 All state-changing MCP calls are performed exclusively by a trusted persistence adapter that runs outside the ADK agent runtime. The adapter accepts a `SafetyValidationReceipt` produced by deterministic validation code, verifies its HMAC-SHA-256 signature and TTL, and only then calls the underlying mutating MCP tool. This ensures that no LLM output, prompt injection, or agent tool call can directly create, update, or delete domain state.
 
