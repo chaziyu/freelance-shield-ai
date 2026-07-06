@@ -991,24 +991,28 @@ def test_discussion_agent_schema_association() -> None:
 
 
 def test_parse_fallback_json_direct() -> None:
-    # 1. Valid raw JSON object
+    # 1. raw object accepted
     assert _parse_fallback_json('{"a": 1}') == {"a": 1}
     assert _parse_fallback_json('  {"a": 1}  ') == {"a": 1}
 
-    # 2. Valid single json fence
-    assert _parse_fallback_json('```json\n{"a": 1}\n```') == {"a": 1}
+    # 2. valid multi-line unlabeled fence accepted
     assert _parse_fallback_json('```\n{"a": 1}\n```') == {"a": 1}
-    assert _parse_fallback_json('```json {"a": 1} ```') == {"a": 1}
 
-    # 3. Prose plus JSON is rejected
+    # 3. valid multi-line json fence accepted
+    assert _parse_fallback_json('```json\n{"a": 1}\n```') == {"a": 1}
+
+    # 4. inline fence rejected
+    assert _parse_fallback_json('```json {"a": 1} ```') is None
+
+    # 5. prose-plus-JSON rejected
     assert _parse_fallback_json('Here is JSON: {"a": 1}') is None
     assert _parse_fallback_json('{"a": 1} hope it helps') is None
     assert _parse_fallback_json('Here is JSON: ```json {"a": 1} ```') is None
 
-    # 4. python fence is rejected
+    # 6. python fence rejected
     assert _parse_fallback_json('```python\n{"a": 1}\n```') is None
 
-    # 5. JSON array is rejected
+    # 7. array rejected
     assert _parse_fallback_json('[1, 2, 3]') is None
     assert _parse_fallback_json('```json\n[1, 2, 3]\n```') is None
 
@@ -1167,6 +1171,13 @@ async def test_discussion_agent_prose_json_workflow_rejection() -> None:
         ),
         source_platform="Instagram",
     )
-    res = await service.analyze_discussion(input_data)
-    assert res.ok is False
-    assert res.error["code"] == "WORKFLOW_ERROR"
+    from unittest.mock import AsyncMock, patch
+
+    persist_mock = AsyncMock()
+    with patch.object(
+        service, "persist_validated_discussion_facts", new=persist_mock
+    ):
+        res = await service.analyze_discussion(input_data)
+        assert res.ok is False
+        assert res.error["code"] == "WORKFLOW_ERROR"
+        persist_mock.assert_not_awaited()

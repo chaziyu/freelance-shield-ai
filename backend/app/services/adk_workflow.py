@@ -451,24 +451,26 @@ def _parse_fallback_json(text: str) -> dict[str, Any] | None:
     if not text:
         return None
     cleaned = text.strip()
-    if cleaned.startswith("```"):
-        if not cleaned.endswith("```"):
-            return None
-        idx_start = cleaned.find("{")
-        idx_end = cleaned.rfind("}")
-        if idx_start == -1 or idx_end == -1 or idx_start >= idx_end:
-            return None
-        prefix = cleaned[:idx_start].strip()
-        suffix = cleaned[idx_end + 1:].strip()
-        if prefix not in ("```", "```json"):
-            return None
-        if suffix != "```":
-            return None
-        json_part = cleaned[idx_start:idx_end + 1]
-    else:
-        if not (cleaned.startswith("{") and cleaned.endswith("}")):
+    if cleaned.startswith("{"):
+        if not cleaned.endswith("}"):
             return None
         json_part = cleaned
+    else:
+        if not (cleaned.startswith("```") and cleaned.endswith("```")):
+            return None
+        lines = cleaned.splitlines()
+        if len(lines) < 3:
+            return None
+        first_line = lines[0].strip()
+        last_line = lines[-1].strip()
+        if first_line not in ("```", "```json"):
+            return None
+        if last_line != "```":
+            return None
+        body = "\n".join(lines[1:-1]).strip()
+        if not (body.startswith("{") and body.endswith("}")):
+            return None
+        json_part = body
     try:
         parsed = json.loads(json_part)
         if isinstance(parsed, dict):
