@@ -1173,12 +1173,24 @@ class AdkWorkflowService:
             amount=ext_dict.get("fee_amount_minor", {}).get("value") / 100
             if ext_dict.get("fee_amount_minor")
             else None,
-            currency=ext_dict.get("currency", {}).get("value"),
+            currency=(
+                ext_dict.get("currency", {}).get("value")
+                if ext_dict.get("currency")
+                else None
+            ),
             deadline=date.fromisoformat(ext_dict.get("deadline", {}).get("value"))
             if ext_dict.get("deadline")
             else None,
-            revision_limit=ext_dict.get("revision_limit", {}).get("value"),
-            payment_terms=ext_dict.get("payment_terms", {}).get("value"),
+            revision_limit=(
+                ext_dict.get("revision_limit", {}).get("value")
+                if ext_dict.get("revision_limit")
+                else None
+            ),
+            payment_terms=(
+                ext_dict.get("payment_terms", {}).get("value")
+                if ext_dict.get("payment_terms")
+                else None
+            ),
             missing_fields=res.data["missing_fields"],
             risk_flags=res.data["risk_flags"],
         )

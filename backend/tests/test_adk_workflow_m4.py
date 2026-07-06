@@ -1248,3 +1248,90 @@ async def test_discussion_agent_legacy_response_rejection() -> None:
         assert result.ok is False
         assert result.error["code"] == "WORKFLOW_ERROR"
         persist_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_analyse_intake_null_optional_fields() -> None:
+    """Regression: analyse_intake must not crash with AttributeError when
+    currency, revision_limit, or payment_terms are None in extracted_facts.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from app.schemas.agent_workflow import WorkflowResult
+    from app.schemas.workflow import IntakeAnalyseRequest
+
+    service = AdkWorkflowService(MockLlm(model="mock"))
+
+    proj_id = "7010845f-ced4-4a16-8955-3ad1ab56d3ae"
+    snap_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    # A partial extraction: required fields present, optional fields null
+    partial_facts = WorkflowResult(
+        ok=True,
+        data={
+            "project_id": proj_id,
+            "snapshot_id": snap_id,
+            "extracted_facts": {
+                "title": "Poster Project",
+                "scope": {
+                    "value": "Design a poster.",
+                    "evidence_quote": "Need a poster",
+                    "confidence": 0.9,
+                },
+                "deliverables": {
+                    "value": ["One poster file."],
+                    "evidence_quote": "Need a poster",
+                    "confidence": 0.9,
+                },
+                "fee_amount_minor": {
+                    "value": 80000,
+                    "evidence_quote": "RM800",
+                    "confidence": 0.99,
+                },
+                # These three are legally None when Gemini cannot extract them
+                "currency": None,
+                "deadline": None,
+                "revision_limit": None,
+                "payment_terms": None,
+            },
+            "missing_fields": [
+                "currency",
+                "deadline",
+                "revision_limit",
+                "payment_terms",
+            ],
+            "risk_flags": [],
+        },
+        trace=[],
+    )
+
+    mcp_response: dict = {
+        "project": {
+            "id": proj_id,
+            "title": "Poster Project",
+            "source_platform": "Instagram",
+        }
+    }
+
+    with (
+        patch.object(
+            service, "analyze_discussion", new=AsyncMock(return_value=partial_facts)
+        ),
+        patch.object(
+            service,
+            "_call_mcp",
+            new=AsyncMock(return_value=mcp_response),
+        ),
+    ):
+        request = IntakeAnalyseRequest(
+            chat_text=(
+                "Need a poster by Friday. RM800. Two revisions."
+            ),
+            source_platform="Instagram",
+        )
+        result = await service.analyse_intake(request)
+
+    assert result is not None
+    assert result.extracted_facts.currency is None
+    assert result.extracted_facts.revision_limit is None
+    assert result.extracted_facts.payment_terms is None
